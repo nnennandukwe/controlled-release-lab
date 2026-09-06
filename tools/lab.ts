@@ -25,8 +25,9 @@ Options:
   --restore-record PATH      Verified earlier record.json and its .sha256 file
   --attempt UUID             Original uncertain attempt under the work directory
   --apply                    Execute deploy/rollback (provider credentials still required)
-  --duration-seconds N       Observation window, 0.1-300 seconds (default 60)
-  --rate N                   Requests/second, 1-10 (default 2)
+  --duration-seconds N       Minimum observation window, 0.1-300 seconds (default 60)
+  --max-duration-seconds N   Total traffic deadline, 0.1-300 seconds (default 300)
+  --rate N                   Launch-rate ceiling, 1-10 requests/second (default 2)
   --max-requests N           Request cap, 1-600 (default 120)
   --work-dir PATH            Evidence and locks (default work)
   --help                    Show examples and exit
@@ -46,7 +47,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
   let heartbeat: NodeJS.Timeout | undefined;
   try {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, strict: true, options: {
-      help: { type: 'boolean' }, target: { type: 'string' }, config: { type: 'string' }, image: { type: 'string' }, 'source-sha': { type: 'string' }, deployment: { type: 'string' }, 'restore-record': { type: 'string' }, attempt: { type: 'string' }, apply: { type: 'boolean' }, 'duration-seconds': { type: 'string' }, rate: { type: 'string' }, 'max-requests': { type: 'string' }, 'work-dir': { type: 'string' },
+      help: { type: 'boolean' }, target: { type: 'string' }, config: { type: 'string' }, image: { type: 'string' }, 'source-sha': { type: 'string' }, deployment: { type: 'string' }, 'restore-record': { type: 'string' }, attempt: { type: 'string' }, apply: { type: 'boolean' }, 'duration-seconds': { type: 'string' }, 'max-duration-seconds': { type: 'string' }, rate: { type: 'string' }, 'max-requests': { type: 'string' }, 'work-dir': { type: 'string' },
     } });
     if (values.help) { stdout(help); return 0; }
     if (positionals.length !== 1) throw new LabError('COMMAND_REQUIRED', 'Choose one command. Run npm run lab -- --help.', 'failed');
@@ -71,6 +72,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     if (values['restore-record'] !== undefined) request.restoreRecord = values['restore-record'];
     if (values.attempt !== undefined) request.attempt = values.attempt;
     if (values['duration-seconds'] !== undefined) request.durationSeconds = Number(values['duration-seconds']);
+    if (values['max-duration-seconds'] !== undefined) request.maxDurationSeconds = Number(values['max-duration-seconds']);
     if (values.rate !== undefined) request.rate = Number(values.rate);
     if (values['max-requests'] !== undefined) request.maxRequests = Number(values['max-requests']);
     stderr(`${operation}: checking ${targetName}; evidence directory ${resolve(values['work-dir'] ?? 'work')}\n`);

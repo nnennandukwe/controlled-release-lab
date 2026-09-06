@@ -21,11 +21,14 @@ export function summarize(samples: Sample[], expected: number) {
 
 export const observationOptionsSchema = z.object({
   durationSeconds: z.number().min(0.1).max(300).default(60),
+  maxDurationSeconds: z.number().min(0.1).max(300).default(300),
   rate: z.number().int().min(1).max(10).default(2),
   maxRequests: z.number().int().min(1).max(600).default(120),
   concurrency: z.number().int().min(1).max(2).default(2),
   timeoutMs: z.number().int().min(10).max(5000).default(5000),
-}).strict().refine(options => Math.ceil(options.durationSeconds * options.rate) <= options.maxRequests, 'Request budget must cover the selected duration and rate. Reduce duration or rate.');
+}).strict()
+  .refine(options => Math.ceil(options.durationSeconds * options.rate) <= options.maxRequests, 'Request budget must cover the selected duration and rate. Reduce duration or rate.')
+  .refine(options => options.maxDurationSeconds >= options.durationSeconds, 'Maximum duration must cover the minimum observation window.');
 export type ObservationOptions = z.infer<typeof observationOptionsSchema>;
 
 export const versionSchema = z.object({
@@ -58,14 +61,20 @@ export async function observe(baseUrl: string, input: Partial<ObservationOptions
   const expected = Math.ceil(options.durationSeconds * options.rate);
   const startedAt = new Date().toISOString();
   const started = performance.now();
+  const deadline = started + options.maxDurationSeconds * 1000;
+  let nextStart = started;
+  let budgetExhausted = false;
   const samples: Sample[] = [];
   const pending = new Set<Promise<void>>();
   let persistenceFailure: unknown;
   for (let index = 0; index < expected; index++) {
-    await delay(Math.max(0, started + index * 1000 / options.rate - performance.now()));
+    await delay(Math.max(0, Math.min(nextStart, deadline) - performance.now()));
+    while (pending.size >= options.concurrency && performance.now() < deadline) await Promise.race(pending);
     if (persistenceFailure) break;
-    if (pending.size >= options.concurrency) continue;
-    const task = probe(baseUrl, options.timeoutMs, transport).then(async sample => {
+    const remainingMs = Math.floor(deadline - performance.now());
+    if (remainingMs < 1) { budgetExhausted = true; break; }
+    nextStart = performance.now() + 1000 / options.rate;
+    const task = probe(baseUrl, Math.min(options.timeoutMs, remainingMs), transport).then(async sample => {
       samples.push(sample);
       await onSample(sample);
     }).catch(error => { persistenceFailure = error; });
@@ -74,6 +83,9 @@ export async function observe(baseUrl: string, input: Partial<ObservationOptions
   }
   await Promise.all(pending);
   if (persistenceFailure) throw persistenceFailure;
+  if (performance.now() >= deadline && samples.some(sample => sample.error === 'TIMEOUT')) budgetExhausted = true;
   await delay(Math.max(0, started + options.durationSeconds * 1000 - performance.now()));
-  return { startedAt, finishedAt: new Date().toISOString(), options, samples, ...summarize(samples, expected) };
+  const summary = summarize(samples, expected);
+  if (budgetExhausted) { summary.outcome = 'blocked'; summary.reasonCodes.push('OBSERVATION_BUDGET_EXHAUSTED'); }
+  return { startedAt, finishedAt: new Date().toISOString(), elapsedMs: performance.now() - started, options, samples, ...summary };
 }

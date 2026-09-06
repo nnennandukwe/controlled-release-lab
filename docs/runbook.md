@@ -72,8 +72,11 @@ manifest identity remains unambiguous.
 
 Run **Operate lab** with deploy, staging, A's image and source SHA, and apply=false.
 Review the target and digest, then start a new authorized run with apply=true.
-The default window is 60 seconds, 2 requests/second, 120 requests maximum,
-concurrency at most 2, and a 5-second request timeout. Provider polling is bounded
+The default minimum window is 60 seconds, with a ceiling of 2 requests/second,
+120 requests maximum, concurrency at most 2, and a 5-second request timeout.
+Waiting for capacity can extend the window; the total traffic deadline defaults
+to 300 seconds. Set `--max-duration-seconds` to a shorter bound when needed.
+Provider polling is bounded
 at 120 seconds plus any in-flight request deadline. Provider calls time out at
 10 seconds; read retries are bounded, and mutations are never automatically retried.
 
@@ -89,8 +92,12 @@ Add --apply only for the authorized operation. Local operators must share one
 work directory. Do not mix local and GitHub mutations concurrently. Actions
 serialize by environment and restore their previous work state before proceeding.
 
-The adapter updates the source and reads it back. If that created a deployment,
-it observes it; otherwise it requests one. Uncertain results retain a lock.
+The adapter updates the source and reads it back. If a new latest deployment
+appears, the update cannot establish who created it. The command records
+UNATTRIBUTED_DEPLOYMENT, retains its lock, and requires read-only reconciliation
+instead of adopting that ID or issuing a duplicate deployment. Otherwise it
+requests one deployment and uses the ID returned by that mutation. Reconciliation
+verifies the desired state without claiming which earlier request caused it.
 Successful deployment requires:
 
 1. The source preserved the digest-qualified reference and still matches the active image before measurement.
@@ -120,9 +127,13 @@ npm run lab -- observe --target live --duration-seconds 60 --rate 2 --max-reques
 Each request records end-to-end duration, status, source, environment, deployment,
 and expected keyboard result order. Transport failures stay in the denominator.
 If any request has no completed response, p95 is null instead of a falsely complete
-latency statistic. Missing slots, mixed identity, or provider drift prevent success.
-The request cap must cover duration times rate; concurrency saturation creates
-insufficient evidence.
+latency statistic. Mixed identity or provider drift prevents success.
+The request cap must cover minimum duration times the configured rate. A full
+concurrency limit causes the scheduler to wait, preserving the requested sample
+count and launch-rate ceiling. Records include the actual start, finish, and
+elapsed time; do not treat an extended sample as fixed-duration load evidence.
+The total traffic deadline stops new probes and bounds in-flight requests.
+OBSERVATION_BUDGET_EXHAUSTED or an incomplete sample prevents verification.
 
 These bounds control the rehearsal. They are not rollout thresholds or evidence
 of customer adoption. Build 3 will add cohorts, distinct contexts, and predeclared
@@ -172,14 +183,19 @@ state, not which previous request caused it. Durable intent and acceptance event
 also support recovery after interruption before the final record was written.
 
 If the desired state cannot be verified, the lock remains. Inspect target mapping,
-provider deployment, and metadata compatibility. Missing/expired artifacts or an
-interruption before durable intent require an operator to recover evidence or
+provider deployment, and metadata compatibility. Missing/expired evidence for a
+possibly started operation, or an interruption before durable intent, requires an operator to recover evidence or
 authorize a separately reviewed recovery. Never discard locks just because they
 are old. There is no force-unlock command.
 
 Each lab-state artifact is retained for 90 days, subject to repository settings.
-Mutation/reconciliation runs carry prior state forward. Failed upload, expired
-artifacts, or history beyond the bounded lookup blocks the next operation.
+Mutation/reconciliation runs carry prior state forward. A missing artifact may
+be skipped only when GitHub's completed job/step history proves the operation
+was skipped. Earlier attempts of a rerun are still checked before older runs.
+An operation that started, including one later cancelled, still requires its
+artifact; ambiguous history, failed upload, expired artifacts, or history beyond
+the bounded lookup blocks the next operation. The lookup inspects at most 20
+operation attempts and 10 pages of workflow runs.
 Read-only observations do not clear locks. Checksums detect changed bytes; these
 files remain editable by their owner and are not tamper-resistant storage.
 
@@ -205,3 +221,4 @@ cleanup authorization. Retain rollback artifacts for the next rehearsal.
 - [Railway rollback](https://docs.railway.com/deployments/deployment-actions)
 - [Railway project tokens](https://docs.railway.com/integrations/api)
 - [GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
+- [GitHub attempt-specific job history](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run-attempt)

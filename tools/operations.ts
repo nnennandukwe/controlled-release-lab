@@ -3,13 +3,13 @@ import { z } from 'zod';
 import type { Hosting, Snapshot } from './railway.js';
 import { acquireLock, fingerprint, imageSchema, Journal, LabError, loadAttempt, loadRecord, releaseReconciledLock, targetSchema, type EvidenceRecord, type Target } from './evidence.js';
 import { observe, observationOptionsSchema } from './observe.js';
-export type Operation = { operation: 'deploy' | 'rollback' | 'observe' | 'reconcile'; targetName: 'staging' | 'live'; target: Target; image?: string; sourceSha?: string; deploymentId?: string; restoreRecord?: string; attempt?: string; apply?: boolean; durationSeconds?: number; rate?: number; maxRequests?: number };
+export type Operation = { operation: 'deploy' | 'rollback' | 'observe' | 'reconcile'; targetName: 'staging' | 'live'; target: Target; image?: string; sourceSha?: string; deploymentId?: string; restoreRecord?: string; attempt?: string; apply?: boolean; durationSeconds?: number; maxDurationSeconds?: number; rate?: number; maxRequests?: number };
 export async function execute(request: Operation, hosting: Hosting, root: string, transport: typeof fetch = fetch) {
   targetSchema.parse(request.target);
   const mutating = request.operation === 'deploy' || request.operation === 'rollback';
   if (request.operation === 'deploy') { imageSchema.parse(request.image); z.string().regex(/^[a-f0-9]{40}$/).parse(request.sourceSha); }
   if (request.operation === 'rollback') z.string().uuid().parse(request.deploymentId);
-  const options = observationOptionsSchema.parse({ durationSeconds: request.durationSeconds, rate: request.rate, maxRequests: request.maxRequests });
+  const options = observationOptionsSchema.parse({ durationSeconds: request.durationSeconds, maxDurationSeconds: request.maxDurationSeconds, rate: request.rate, maxRequests: request.maxRequests });
   let prior: EvidenceRecord | undefined;
   if (request.operation === 'rollback') {
     if (!request.restoreRecord) throw new LabError('RESTORE_RECORD_REQUIRED', 'Supply --restore-record for a verified earlier deployment and its compatible configuration.');
@@ -29,7 +29,7 @@ export async function execute(request: Operation, hosting: Hosting, root: string
   }
   const journal = new Journal(root);
   const release = mutating ? await acquireLock(root, request.target, journal.attemptId) : undefined;
-  let mutationStarted = false;
+  let providerMutationAttempted = false;
   let recordSaved = false;
   const record: EvidenceRecord = {
     schemaVersion: 1, attemptId: journal.attemptId, operation: request.operation, targetName: request.targetName, target: request.target,
@@ -53,16 +53,20 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     if (mutating) {
       const fresh = await hosting.snapshot();
       if (fingerprint(fresh) !== fingerprint(before)) throw new LabError('STATE_CHANGED', 'Provider state changed after preflight. Inspect it before creating a new attempt.');
-      mutationStarted = true;
       if (request.operation === 'deploy') {
+        providerMutationAttempted = true;
         await hosting.updateImage(record.requestedImage!);
         const configured = await hosting.snapshot();
         await journal.append('image-source', configured);
         if (configured.sourceImage !== record.requestedImage) throw new LabError('IMAGE_REFERENCE_NOT_PRESERVED', 'Railway did not preserve the immutable reference. Reconcile this change and reassess host compatibility.');
-        // A source change may already have created a deployment. Do not issue a
-        // second trigger when the provider reports that deployment.
-        record.deploymentId = configured.latestId && configured.latestId !== before.latestId ? configured.latestId : await hosting.deploy();
-      } else record.deploymentId = await hosting.rollback(request.deploymentId!);
+        // A readback cannot attribute a new deployment to our source update.
+        // Preserve the uncertain effect instead of adopting or retriggering it.
+        if (configured.latestId !== before.latestId) throw new LabError('UNATTRIBUTED_DEPLOYMENT', 'A deployment appeared during the image update. Reconcile its observed state without attributing it to this request or triggering another deployment.');
+        record.deploymentId = await hosting.deploy();
+      } else {
+        providerMutationAttempted = true;
+        record.deploymentId = await hosting.rollback(request.deploymentId!);
+      }
       await journal.append('accepted', { deploymentId: record.deploymentId });
     }
     if (request.operation === 'observe' || (request.operation === 'reconcile' && !record.deploymentId)) {
@@ -98,7 +102,7 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     record.recoveryInstruction = request.operation === 'reconcile' ? 'Desired provider state and live behavior observed; this does not prove which earlier request caused it.' : '';
   } catch (error) {
     const failure = error instanceof LabError ? error : new LabError('EXECUTION_ERROR', 'Execution or evidence persistence failed. Inspect the retained attempt files and reconcile any mutation.');
-    record.outcome = mutationStarted && failure.outcome !== 'failed' ? 'unknown_outcome' : failure.outcome;
+    record.outcome = providerMutationAttempted && failure.outcome !== 'failed' ? 'unknown_outcome' : failure.outcome;
     record.reasonCodes = [failure.code];
     record.recoveryInstruction = `${failure.message}${record.outcome === 'unknown_outcome' ? ` Reconcile attempt ${journal.attemptId}.` : ''}`;
   }
@@ -109,6 +113,6 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     if (record.outcome === 'verified' && request.operation === 'reconcile') await releaseReconciledLock(root, request.target, request.attempt!);
     return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, recordPath, attemptId: journal.attemptId };
   } finally {
-    if (release && (!mutationStarted || (recordSaved && record.outcome !== 'unknown_outcome'))) await release();
+    if (release && (!providerMutationAttempted || (recordSaved && record.outcome !== 'unknown_outcome'))) await release();
   }
 }

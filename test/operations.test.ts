@@ -46,6 +46,24 @@ it('verifies provider identity and a live observation before completing deployme
   expect(result.outcome).toBe('verified');
   expect(await loadRecord(result.recordPath)).toMatchObject({ deploymentId, requestedImage: image, requestedSourceSha: sourceSha, configurationFingerprint: 'config-a' });
 });
+it('does not attribute a newly observed deployment to an image update', async () => {
+  const hosting = host();
+  const updateImage = hosting.updateImage;
+  const externallyDeploy = hosting.deploy;
+  hosting.updateImage = vi.fn(async value => { await updateImage(value); await externallyDeploy(); });
+  hosting.deploy = vi.fn(async () => deploymentId);
+  const directory = await root();
+  const result = await execute(request, hosting, directory, traffic);
+  expect(result.outcome).toBe('unknown_outcome');
+  expect(result.reasonCodes).toContain('UNATTRIBUTED_DEPLOYMENT');
+  expect((await loadRecord(result.recordPath)).deploymentId).toBeNull();
+  expect(hosting.deploy).not.toHaveBeenCalled();
+  await expect(execute(request, hosting, directory, traffic)).rejects.toThrow('Reconcile');
+  const reconciled = await execute({ ...request, operation: 'reconcile', attempt: (await loadRecord(result.recordPath)).attemptId }, hosting, directory, traffic);
+  expect(reconciled.outcome).toBe('verified');
+  expect(reconciled.recoveryInstruction).toContain('does not prove');
+  expect(hosting.deploy).not.toHaveBeenCalled();
+});
 it('previews without invoking image or deployment mutations', async () => {
   const hosting = host();
   expect((await execute({ ...request, apply: false }, hosting, await root(), traffic)).outcome).toBe('preview');

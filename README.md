@@ -57,6 +57,11 @@ Hosted commands require a target and its environment-scoped
 outside the application and coding-agent environment. Deployment and rollback
 preview by default; `--apply` performs the operation.
 
+Observations preserve the requested sample count by waiting for concurrency
+capacity. `--duration-seconds` is the minimum window; `--max-duration-seconds`
+sets the total traffic deadline (default 300 seconds). The record includes the
+actual elapsed time, and exhausted budgets block verification.
+
 For machine-readable stdout without npm's script banner:
 
 ```bash

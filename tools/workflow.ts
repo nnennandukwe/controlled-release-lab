@@ -13,7 +13,21 @@ export async function initializeState(root: string) {
   z.object({ schemaVersion: z.literal(1) }).strict().parse(JSON.parse(await readFile(path, 'utf8')));
 }
 
-const runSchema = z.object({ id: z.number(), run_attempt: z.number(), display_title: z.string(), head_branch: z.string().nullable(), status: z.string() });
+const runSchema = z.object({ id: z.number().int().positive(), run_attempt: z.number().int().positive(), display_title: z.string(), head_branch: z.string().nullable(), status: z.string() });
+const jobsSchema = z.object({ total_count: z.number(), jobs: z.array(z.object({
+  name: z.string(), status: z.string(), conclusion: z.string().nullable(),
+  steps: z.array(z.object({ name: z.string(), status: z.string(), conclusion: z.string().nullable() })),
+})) });
+
+function operationWasSkipped(value: unknown) {
+  const result = jobsSchema.parse(value);
+  if (result.total_count !== result.jobs.length || result.jobs.length !== 1) return false;
+  const job = result.jobs[0]!;
+  if (job.name !== 'operate' || job.status !== 'completed') return false;
+  if (job.conclusion === 'skipped') return true;
+  const operations = job.steps.filter(step => step.name === 'Execute the requested bounded operation');
+  return operations.length === 1 && operations[0]!.status === 'completed' && operations[0]!.conclusion === 'skipped';
+}
 
 export async function previousOperation(environment: NodeJS.ProcessEnv, transport: typeof fetch = fetch) {
   const config = z.object({ GITHUB_REPOSITORY: z.string().regex(/^[\w.-]+\/[\w.-]+$/), GH_TOKEN: z.string().min(1), GITHUB_RUN_ID: z.string().regex(/^\d+$/), GITHUB_RUN_ATTEMPT: z.literal('1'), LAB_TARGET: z.enum(['staging', 'live']) }).parse(environment);
@@ -22,15 +36,20 @@ export async function previousOperation(environment: NodeJS.ProcessEnv, transpor
     if (!response.ok) throw new Error(`Cannot recover previous operator state: GitHub HTTP ${response.status}.`);
     return response.json();
   };
+  let attemptsInspected = 0;
   for (let page = 1; page <= 10; page++) {
     const runs = z.object({ workflow_runs: z.array(runSchema) }).parse(await get(`actions/workflows/operate.yml/runs?branch=main&per_page=100&page=${page}`)).workflow_runs;
-    const prior = runs.find(run => run.id < Number(config.GITHUB_RUN_ID) && ['deploy', 'rollback', 'reconcile'].some(operation => run.display_title === `${config.LAB_TARGET} / ${operation}`));
-    if (prior) {
+    const candidates = runs.filter(run => run.head_branch === 'main' && run.id < Number(config.GITHUB_RUN_ID) && ['deploy', 'rollback', 'reconcile'].some(operation => run.display_title === `${config.LAB_TARGET} / ${operation}`));
+    for (const prior of candidates) {
       if (prior.status !== 'completed') throw new Error('The previous operation has not completed. Wait before starting another operation.');
-      const name = `lab-state-${config.LAB_TARGET}-${prior.id}-${prior.run_attempt}`;
       const artifacts = z.object({ artifacts: z.array(z.object({ name: z.string(), expired: z.boolean() })) }).parse(await get(`actions/runs/${prior.id}/artifacts?per_page=100`)).artifacts;
-      if (!artifacts.some(artifact => artifact.name === name && !artifact.expired)) throw new Error('Previous operation evidence is missing or expired. Inspect provider state and recover that evidence before another workflow operation.');
-      return { runId: String(prior.id), artifactName: name };
+      for (let attempt = prior.run_attempt; attempt >= 1; attempt--) {
+        if (++attemptsInspected > 20) throw new Error('Operation attempt history exceeds the bounded lookup. Recover prior state before continuing.');
+        const name = `lab-state-${config.LAB_TARGET}-${prior.id}-${attempt}`;
+        if (artifacts.some(artifact => artifact.name === name && !artifact.expired)) return { runId: String(prior.id), artifactName: name };
+        const jobs = await get(`actions/runs/${prior.id}/attempts/${attempt}/jobs?per_page=100`);
+        if (!operationWasSkipped(jobs)) throw new Error('Previous operation evidence is missing or expired and execution cannot be ruled out. Inspect provider state and recover that evidence before another workflow operation.');
+      }
     }
     if (runs.length < 100) return { runId: '', artifactName: '' };
   }
