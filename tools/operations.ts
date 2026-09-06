@@ -85,6 +85,7 @@ export async function execute(request: Operation, hosting: Hosting, root: string
       if (performance.now() >= deadline) throw new LabError('DEPLOYMENT_TIMEOUT', 'Deployment observation timed out. Reconcile this attempt before retrying.');
       await delay(2000);
     }
+    if (serving.sourceImage !== record.requestedImage) throw new LabError('CONFIGURED_IMAGE_MISMATCH', 'The configured image differs from the active image. Keep this operation unresolved until both match the intended digest.');
     if (serving.configurationFingerprint !== record.configurationFingerprint) throw new LabError('CONFIGURATION_MISMATCH', 'The serving configuration differs from the expected baseline. Inspect restored variables and service settings.');
     const measured = await observe(request.target.url, options, sample => journal.append('request', sample), transport);
     record.observations.push({ phase: 'measurement', ...measured });

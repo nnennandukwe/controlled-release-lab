@@ -8,5 +8,6 @@ export async function requireProtectedEnvironment(environment: NodeJS.ProcessEnv
   if (!response.ok) throw new Error(`Cannot verify GitHub environment protection (HTTP ${response.status}). Configure the environment before running this workflow.`);
   const settings = z.object({ protection_rules: z.array(z.object({ type: z.string(), reviewers: z.array(z.unknown()).optional() })), deployment_branch_policy: z.object({ protected_branches: z.boolean(), custom_branch_policies: z.boolean() }).nullable() }).parse(await response.json());
   if (!settings.protection_rules.some(rule => rule.type === 'required_reviewers' && rule.reviewers?.length)) throw new Error('A required reviewer must protect this GitHub environment before credentials can be used.');
-  if (!settings.deployment_branch_policy) throw new Error('Restrict the GitHub environment to main or protected branches.');
+  const policy = settings.deployment_branch_policy;
+  if (!policy || policy.protected_branches === policy.custom_branch_policies) throw new Error('Restrict the GitHub environment to main or protected branches.');
 }

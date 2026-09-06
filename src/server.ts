@@ -45,7 +45,7 @@ export async function createApplication(environment: NodeJS.ProcessEnv): Promise
     if (url.pathname === '/api/search') {
       const query = url.searchParams.get('q')?.trim() ?? '';
       if (query.length < 1 || query.length > 100 || url.searchParams.getAll('q').length !== 1) {
-        json(400, { error: { code: 'INVALID_QUERY', message: 'Provide one query containing 1–100 characters.' }, requestId });
+        json(400, { error: { code: 'INVALID_QUERY', message: 'Provide one query containing 1-100 characters.' }, requestId });
         return;
       }
       json(200, { query, results: search(query), ranking: 'original', requestId, ...identity });

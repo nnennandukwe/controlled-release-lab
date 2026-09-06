@@ -7,7 +7,7 @@ import { LabError, targetSchema } from './evidence.js';
 import { execute, type Operation } from './operations.js';
 import { Railway } from './railway.js';
 
-export const help = `Controlled Release Lab — hosted baseline and recovery
+export const help = `Controlled Release Lab - hosted baseline and recovery
 
 Usage: npm run lab -- <doctor|deploy|observe|rollback|reconcile> --target <staging|live> [options]
 
@@ -25,9 +25,9 @@ Options:
   --restore-record PATH      Verified earlier record.json and its .sha256 file
   --attempt UUID             Original uncertain attempt under the work directory
   --apply                    Execute deploy/rollback (provider credentials still required)
-  --duration-seconds N       Observation window, 0.1–300 seconds (default 60)
-  --rate N                   Requests/second, 1–10 (default 2)
-  --max-requests N           Request cap, 1–600 (default 120)
+  --duration-seconds N       Observation window, 0.1-300 seconds (default 60)
+  --rate N                   Requests/second, 1-10 (default 2)
+  --max-requests N           Request cap, 1-600 (default 120)
   --work-dir PATH            Evidence and locks (default work)
   --help                    Show examples and exit
 
@@ -57,6 +57,8 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     if (map.staging && map.live && map.staging.environmentId === map.live.environmentId) throw new LabError('ENVIRONMENT_COLLISION', 'Staging and live must use separate Railway environments.');
     const target = targetSchema.parse(map[targetName]);
     const hosting = new Railway(environment.RAILWAY_PROJECT_TOKEN ?? '', target);
+    stderr(`${operation}: checking ${targetName}\n`);
+    heartbeat = setInterval(() => stderr(`${operation}: waiting for bounded checks...\n`), 10000);
     if (operation === 'doctor') {
       await hosting.assertScope();
       stdout(`${JSON.stringify({ outcome: 'verified', targetName, target, provider: await hosting.snapshot(), scope: 'read-only preflight; no hosted acceptance implied' })}\n`);
@@ -72,7 +74,6 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     if (values.rate !== undefined) request.rate = Number(values.rate);
     if (values['max-requests'] !== undefined) request.maxRequests = Number(values['max-requests']);
     stderr(`${operation}: checking ${targetName}; evidence directory ${resolve(values['work-dir'] ?? 'work')}\n`);
-    heartbeat = setInterval(() => stderr(`${operation}: waiting for bounded provider and live observations…\n`), 10000);
     const result = await execute(request, hosting, values['work-dir'] ?? 'work');
     stdout(`${JSON.stringify(result)}\n`);
     return result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;

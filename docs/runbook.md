@@ -93,7 +93,7 @@ The adapter updates the source and reads it back. If that created a deployment,
 it observes it; otherwise it requests one. Uncertain results retain a lock.
 Successful deployment requires:
 
-1. The source preserved the digest-qualified reference.
+1. The source preserved the digest-qualified reference and still matches the active image before measurement.
 2. The deployment succeeded and its own meta.image matches that reference.
 3. Exactly that deployment is active after any overlap drains.
 4. Relevant configuration matches the expected fingerprint.

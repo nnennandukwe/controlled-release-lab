@@ -33,7 +33,7 @@ describe('catalog HTTP interface', () => {
   it.each(['', ' '.repeat(3), 'x'.repeat(101)])('rejects invalid queries with corrective text', async query => {
     const response = await fetch(`${await app()}/api/search?q=${encodeURIComponent(query)}`);
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: 'INVALID_QUERY', message: expect.stringContaining('1–100') } });
+    expect(await response.json()).toMatchObject({ error: { code: 'INVALID_QUERY', message: expect.stringContaining('1-100') } });
   });
   it('exposes readiness and local identity without claiming a deployed digest', async () => {
     const base = await app();

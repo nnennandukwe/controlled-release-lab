@@ -10,3 +10,9 @@ it('refuses a workflow dispatched from a feature branch', async () => {
 it('allows the trusted main workflow behind a configured reviewer and branch policy', async () => {
   await expect(requireProtectedEnvironment(env, (async () => Response.json({ protection_rules: [{ type: 'required_reviewers', reviewers: [{ type: 'User', reviewer: { login: 'operator' } }] }], deployment_branch_policy: { protected_branches: true, custom_branch_policies: false } })) as typeof fetch)).resolves.toBeUndefined();
 });
+it.each([false, true])('refuses invalid branch policy flags when both are %s', async enabled => {
+  await expect(requireProtectedEnvironment(env, (async () => Response.json({
+    protection_rules: [{ type: 'required_reviewers', reviewers: [{ type: 'User' }] }],
+    deployment_branch_policy: { protected_branches: enabled, custom_branch_policies: enabled },
+  })) as typeof fetch)).rejects.toThrow('Restrict');
+});

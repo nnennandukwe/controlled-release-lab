@@ -7,7 +7,7 @@ form.addEventListener('submit', async event => {
   pending?.abort();
   const request = new AbortController();
   pending = request;
-  status.textContent = 'Searching…';
+  status.textContent = 'Searching...';
   try {
     const response = await fetch(`/api/search?q=${encodeURIComponent(form.elements.q.value)}`, { signal: request.signal });
     const body = await response.json();
