@@ -1,0 +1,21 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #202a28; background: #f7f5ef; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 860px; padding: 64px 24px 32px; margin: auto; }
+.eyebrow { font-size: .72rem; letter-spacing: .15em; color: #53675f; }
+h1 { font-family: Georgia, serif; font-size: clamp(2.4rem, 7vw, 4.2rem); font-weight: 400; line-height: 1.08; letter-spacing: -.035em; margin: 32px 0 20px; }
+.intro { color: #52635c; margin-bottom: 36px; }
+label { display: block; margin-bottom: 10px; font-weight: 600; }
+.search { display: flex; gap: 10px; }
+input, button { font: inherit; padding: 15px; border-radius: 4px; border: 1px solid #8a9891; }
+input { flex: 1; min-width: 0; background: white; }
+button { color: white; background: #244c3b; cursor: pointer; padding-inline: 24px; }
+:focus-visible { outline: 3px solid #d19725; outline-offset: 3px; }
+#status { min-height: 1.5em; font-size: .9rem; color: #52635c; margin: 24px 0 12px; }
+ul { list-style: none; padding: 0; }
+li { padding: 24px 0; border-top: 1px solid #ccd3cc; }
+h2 { font-size: 1.25rem; margin: 0; font-weight: 600; }
+li p { color: #52635c; line-height: 1.6; }
+li span { font-variant-numeric: tabular-nums; }
+footer { padding-top: 40px; font-size: .8rem; color: #52635c; }
+@media (max-width: 480px) { main { padding-top: 32px; } .search { flex-direction: column; } }

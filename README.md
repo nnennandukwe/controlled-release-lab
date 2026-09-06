@@ -1,55 +1,99 @@
 # Controlled Release Lab
 
-This repository contains the approved tutorial requirements and platform plan
-for **From AI-Generated Code to a Controlled Release**. The planned lab follows
-one search feature through verification, deployment, staged user exposure,
-runtime regression, rollback, repair, and a completed release.
+Controlled Release Lab serves a read-only product catalog and records image,
+deployment, and live-request evidence for a Railway deployment or rollback.
+It is the runnable companion being built for **From AI-Generated Code to a
+Controlled Release**.
 
-**Current state:** repository foundation only. The application, CI workflows,
-container images, hosted environments, and release controls are not implemented
-or deployed yet.
+The application returns search results at `/api/search`, readiness at `/readyz`,
+and embedded source identity at `/version`. Operator commands write raw
+observations and checksummed records under `work/attempts/`. Those records let
+an operator investigate failures and verify deployment or application recovery.
 
-## Start here
+This is for engineers practicing delivery with a small hosted demo. The catalog
+and traffic are synthetic. Build 1 implements the baseline and recovery tools;
+**hosted Railway acceptance is pending**. Attestation enforcement, LaunchDarkly
+exposure, the seeded regression, and completed feature release belong to Builds
+2–4. Local checks alone do not complete the release exercise.
 
-| Document | Purpose |
+## Run locally
+
+Install Node 24.20.0 (the version in `.nvmrc`). Docker is needed only for container
+verification. From a checkout:
+
+```bash
+npm ci --ignore-scripts
+npm run dev
+```
+
+Open [localhost:3000](http://localhost:3000). Search for `keyboard`; the compact
+and full-size keyboards appear. Stop with Ctrl+C. No cloud credentials are needed.
+Local builds report `sourceSha: "local"`.
+
+```bash
+npm run typecheck
+npm test
+npm run build
+npm start
+```
+
+`build` writes compiled output and metadata to `dist/`; `start` serves it.
+`npm run verify` runs typing, tests, compilation, and the Docker smoke test.
+
+## Operate the hosted lab
+
+Start with the [runbook](docs/runbook.md) for account prerequisites, target
+configuration, publication, deployment, rollback, and reconciliation. The CLI
+never uses a remembered Railway project or the desktop's OAuth session.
+
+```bash
+npm run lab -- --help
+npm run lab -- doctor --target staging
+npm run lab -- observe --target staging --duration-seconds 60 --rate 2 --max-requests 120
+```
+
+Hosted commands require a target and its environment-scoped
+`RAILWAY_PROJECT_TOKEN`. Keep that credential in the operator's secret store,
+outside the application and coding-agent environment. Deployment and rollback
+preview by default; `--apply` performs the operation.
+
+For machine-readable stdout without npm's script banner:
+
+```bash
+node --import tsx tools/lab.ts doctor --target staging
+```
+
+| Output | Meaning |
 |---|---|
-| [Tutorial brief](docs/tutorial-brief.md) | Approved learning objectives, narrative, and completion requirements. |
-| [Platform plan](docs/platform-plan.md) | Railway and LaunchDarkly direction, access findings, compatibility questions, and first engineering milestone. |
-| [Agent instructions](AGENTS.md) | Scope and evidence requirements for implementation. |
+| `work/attempts/<uuid>/*-*.json` | Preserved intent, provider observations, and requests |
+| `work/attempts/<uuid>/record.json` and `.sha256` | Final record and checksum |
+| `work/locks/*.lock` | Environment ownership retained after an uncertain mutation |
+| GitHub `build-record-*` artifact | Published digest and declared source/build identity |
+| GitHub `lab-state-*` artifact | Preserved operator evidence and unresolved locks |
 
-The intended readers are engineers who already understand Git and basic CI and
-want to practice releasing AI-assisted changes to a running application.
+Exit `0` means verified or preview, `1` invalid/failed, and `2` blocked/unknown.
+A verified Build 1 operation means the provider image record and live observation
+agreed. It does not establish cryptographic provenance, production reliability,
+or feature-release completion.
 
-The implementation will use a small TypeScript/Node search application,
-GitHub Actions, a container registry, Railway hosting, and LaunchDarkly feature
-flags. Railway replaces the brief's earlier Cloud Run proposal, subject to
-verification of exact-image promotion. Google Cloud is not a prerequisite.
+## Current limits
 
-## Required release outcome
+- Railway digest compatibility remains a hosted acceptance test. The adapter
+  requires digest-qualified `meta.image` in the deployment record and blocks
+  when absent. Local provider fixtures are synthetic.
+- Railway application rollback and LaunchDarkly feature disablement are different
+  operations. This build implements the application recovery path.
+- Retain earlier images, configuration, provider deployments, and evidence.
+  Expired rollback targets or missing evidence require operator intervention.
+- Public source and images are the chosen distribution model when ready.
+  Publication and paid hosting require explicit operational approval.
+- There is no runtime integration with ThreadLoop, GAAP, or `workshop-platform`.
 
-The completed tutorial must demonstrate:
+## Plans and requirements
 
-1. A reachable HTTPS application with identifiable deployed code and a baseline.
-2. Verified artifact provenance and rejection of evidence for a different subject.
-3. Staging validation and live deployment of the same verified image.
-4. Authorized exposure to defined cohorts, followed by measured rollout stages.
-5. Detection of a disclosed runtime regression and verified feature rollback.
-6. Restoration of a previous application deployment and verification of recovery.
-7. A repaired build, fresh evidence, and release to the full intended audience.
-
-Committing, reviewing, or merging code does not complete these requirements.
-
-## Current first use
-
-Read the brief and platform plan before implementation. There are no application
-installation or deployment commands yet. The next engineering milestone is to
-prove Railway can run the exact verified image and restore it reliably, then
-build the deployed baseline.
-
-The core release exercise must remain usable after the LaunchDarkly trial.
-Native approval workflows and automated guarded rollouts are optional exercises
-whose availability and behavior require separate verification.
-
-The general workshop-design skill lives in the separate `workshop-platform`
-project. This repository will provide its runnable tutorial example; it does
-not currently integrate with that project, ThreadLoop, or GAAP.
+- [Build 1 plan](.plan/build-01-hosted-baseline-recovery.md)
+- [Build sequence](.plan/README.md) — Builds 2–5 will be planned separately here
+- [Approved tutorial brief](docs/tutorial-brief.md)
+- [Platform decisions](docs/platform-plan.md)
+- [Operator runbook](docs/runbook.md)
+- [Repository instructions](AGENTS.md)
