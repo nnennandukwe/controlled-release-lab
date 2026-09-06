@@ -15,6 +15,11 @@ on:
         description: Execute deployment or rollback after reviewing the subject
         type: boolean
         default: false
+      max_duration_seconds:
+        description: Total traffic deadline in seconds (60-300; minimum window is 60)
+        type: number
+        default: 300
+        required: true
       image:
         description: Digest-qualified GHCR image (deploy)
         type: string
@@ -75,6 +80,7 @@ jobs:
           LAB_OPERATION: ${{ inputs.operation }}
           LAB_TARGET: ${{ inputs.target }}
           LAB_APPLY: ${{ inputs.apply }}
+          LAB_MAX_DURATION_SECONDS: ${{ inputs.max_duration_seconds }}
           LAB_IMAGE: ${{ inputs.image }}
           LAB_SOURCE_SHA: ${{ inputs.source_sha }}
           LAB_DEPLOYMENT: ${{ inputs.deployment }}

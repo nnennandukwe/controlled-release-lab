@@ -15,3 +15,15 @@ the current Qodo review status must still be checked against the pushed PR head.
 The observer's explicit time budget refines Build 1's original fixed-slot
 measurement proposal in response to this review. It does not establish rollout
 thresholds or relax sample sufficiency. Hosted acceptance remains pending.
+
+The completed follow-up review of `3e4a1c3` marked all five findings above as
+implemented and raised two additional recommendations:
+
+- `120163f6-cd93-4ed1-a966-343cbe46cfe7`: the Operate workflow now exposes
+  `max_duration_seconds`, passes it through `LAB_MAX_DURATION_SECONDS`, and
+  validates and forwards it to the CLI. Tests cover forwarding and invalid bounds.
+- `45a6ac35-e252-4fde-9076-8e42722b0b5b`: real Railway recovery is not yet verified.
+  This is an outstanding hosted acceptance requirement, not a claim that local
+  fixtures establish provider behavior. The runbook's A-to-B-to-A rehearsal and
+  uncertain-outcome reconciliation require authorized resources and release
+  credentials. This recommendation remains open until that evidence exists.

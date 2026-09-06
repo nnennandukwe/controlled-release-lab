@@ -75,7 +75,11 @@ Review the target and digest, then start a new authorized run with apply=true.
 The default minimum window is 60 seconds, with a ceiling of 2 requests/second,
 120 requests maximum, concurrency at most 2, and a 5-second request timeout.
 Waiting for capacity can extend the window; the total traffic deadline defaults
-to 300 seconds. Set `--max-duration-seconds` to a shorter bound when needed.
+to 300 seconds. Set `--max-duration-seconds` locally or the **Operate lab** input
+`max_duration_seconds` to a shorter bound when needed. The workflow accepts
+60-300 seconds because its minimum window is 60 seconds; local runs can select
+a shorter minimum window and matching total deadline. Doctor sends no traffic
+and ignores this input.
 Provider polling is bounded
 at 120 seconds plus any in-flight request deadline. Provider calls time out at
 10 seconds; read retries are bounded, and mutations are never automatically retried.

@@ -52,6 +52,13 @@ it('refuses mutation workflow reruns that might replay a previous effect', async
 it('does not construct file paths from unchecked restoration input', () => {
   expect(() => workflowArguments({ LAB_OPERATION: 'rollback', LAB_TARGET: 'live', LAB_DEPLOYMENT: '44444444-4444-4444-8444-444444444444', LAB_RESTORE_ATTEMPT: '../../secret' })).toThrow();
 });
+it('forwards the hosted operator-selected traffic deadline to the CLI', () => {
+  expect(workflowArguments({ LAB_OPERATION: 'observe', LAB_TARGET: 'staging', LAB_MAX_DURATION_SECONDS: '90' }))
+    .toEqual(['observe', '--target', 'staging', '--max-duration-seconds', '90']);
+});
+it.each(['30', '301', 'not-a-number'])('rejects hosted traffic deadline %s before operation execution', async value => {
+  expect(() => workflowArguments({ LAB_OPERATION: 'observe', LAB_TARGET: 'live', LAB_MAX_DURATION_SECONDS: value })).toThrow();
+});
 it('retains a state artifact even for the initial preview with no operation journal', async () => {
   const root = await mkdtemp(join(tmpdir(), 'release-preview-'));
   try {
