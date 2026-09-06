@@ -29,7 +29,12 @@ export async function previousOperation(environment: NodeJS.ProcessEnv, transpor
       if (prior.status !== 'completed') throw new Error('The previous operation has not completed. Wait before starting another operation.');
       const name = `lab-state-${config.LAB_TARGET}-${prior.id}-${prior.run_attempt}`;
       const artifacts = z.object({ artifacts: z.array(z.object({ name: z.string(), expired: z.boolean() })) }).parse(await get(`actions/runs/${prior.id}/artifacts?per_page=100`)).artifacts;
-      if (!artifacts.some(artifact => artifact.name === name && !artifact.expired)) throw new Error('Previous operation evidence is missing or expired. Inspect provider state and recover that evidence before another workflow operation.');
+      if (!artifacts.some(artifact => artifact.name === name && !artifact.expired)) {
+          const jobs = z.object({ jobs: z.array(z.object({ steps: z.array(z.object({ name: z.string(), conclusion: z.string().nullable() })).optional() })) }).parse(await get(`actions/runs/${prior.id}/jobs?per_page=100`)).jobs;
+          const started = jobs.some(job => job.steps?.some(step => step.name === 'Execute the requested bounded operation' && step.conclusion !== 'skipped'));
+          if (started) throw new Error('Previous operation evidence is missing or expired. Inspect provider state and recover that evidence before another workflow operation.');
+          continue;
+        }
       return { runId: String(prior.id), artifactName: name };
     }
     if (runs.length < 100) return { runId: '', artifactName: '' };
