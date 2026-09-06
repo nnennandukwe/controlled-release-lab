@@ -61,7 +61,10 @@ export async function execute(request: Operation, hosting: Hosting, root: string
         if (configured.sourceImage !== record.requestedImage) throw new LabError('IMAGE_REFERENCE_NOT_PRESERVED', 'Railway did not preserve the immutable reference. Reconcile this change and reassess host compatibility.');
         // A source change may already have created a deployment. Do not issue a
         // second trigger when the provider reports that deployment.
-        record.deploymentId = configured.latestId && configured.latestId !== before.latestId ? configured.latestId : await hosting.deploy();
+        if (configured.latestId && configured.latestId !== before.latestId) {
+            const existing = await hosting.deployment(configured.latestId);
+            record.deploymentId = existing.image === record.requestedImage ? configured.latestId : await hosting.deploy();
+          } else record.deploymentId = await hosting.deploy();
       } else record.deploymentId = await hosting.rollback(request.deploymentId!);
       await journal.append('accepted', { deploymentId: record.deploymentId });
     }
