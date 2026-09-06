@@ -34,3 +34,18 @@ The workflow now accepts `change_reference`, the CLI accepts `--change-reference
 and the operation rejects live apply without a valid reference before provider
 access. Intent/final records carry the reference and reconciliation preserves
 the original one. This is traceability metadata, not substituted approval.
+
+## Railway connection follow-up
+
+The completed review of `92b2a4c1bb3c7aaa193ae19295994bd7f8c6281d` reported seven
+findings as implemented and `45a6ac35-e252-4fde-9076-8e42722b0b5b` as pending.
+The [Railway connection record](railway-connection.md) now makes the subsequent
+real staging/live setup and successful scoped-token preflights visible in this PR.
+The linked JSON records the checked source SHA, timestamps, target identities,
+provider snapshots, and configuration fingerprints, without credential values.
+
+This establishes local operator connectivity. It does not settle the recovery
+finding: no image deployment, uncertain-outcome reconciliation, live traffic
+measurement, or rollback has run. That finding remains an outstanding hosted
+acceptance requirement. GitHub Actions deployment credentials are also not
+configured; local Keychain access must not be described as protected CI access.

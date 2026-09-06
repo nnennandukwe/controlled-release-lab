@@ -8,8 +8,11 @@ implementation plan or proof of deployment.
 The user selected public GitHub source and public GHCR images when ready. This
 sets distribution policy, not immediate publication approval. Railway CLI login
 subsequently succeeded, and the LaunchDarkly trial was inspected in the signed-in
-UI. Bootstrap access observations below are historical. Current Railway billing
-and hosted digest/rollback acceptance still need verification.
+UI. Bootstrap access observations below are historical. Railway is now configured
+for the dedicated lab, and both local operator preflights passed with scoped
+credentials. See the [Railway connection record](railway-connection.md) and its
+timestamped evidence. The account was verified as Hobby; hosted digest/rollback
+acceptance and protected GitHub Actions deployment access remain outstanding.
 
 The Build 1 implementation plan is saved in
 [.plan](../.plan/build-01-hosted-baseline-recovery.md). Builds 2–5 will be planned

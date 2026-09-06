@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "railway-read-only-preflight",
+  "sourceSha": "92b2a4c1bb3c7aaa193ae19295994bd7f8c6281d",
+  "producer": {
+    "execution": "local operator",
+    "nodeVersion": "24.20.0",
+    "command": "node --import tsx tools/lab.ts doctor --target <target>",
+    "credentialType": "environment-scoped Railway project token"
+  },
+  "integrity": "Unsigned operator-recorded results; not an attestation or a continuous cloud-state check.",
+  "configurationObservation": {
+    "observedAt": "2026-09-06T23:01:12.681Z",
+    "project": {
+      "id": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+      "name": "controlled-release-lab",
+      "isPublic": false,
+      "prDeploys": false,
+      "deployments": {
+        "edges": []
+      },
+      "volumes": {
+        "edges": []
+      }
+    },
+    "targets": {
+      "staging": {
+        "source": null,
+        "latestDeployment": null,
+        "activeDeployments": [],
+        "healthcheckPath": "/readyz",
+        "healthcheckTimeout": 60,
+        "numReplicas": 1,
+        "startCommand": "node dist/src/main.js",
+        "restartPolicyType": "ON_FAILURE",
+        "restartPolicyMaxRetries": 3,
+        "sleepApplication": false,
+        "domains": {
+          "serviceDomains": [
+            {
+              "domain": "catalog-staging-55dc.up.railway.app",
+              "targetPort": 3000
+            }
+          ]
+        },
+        "variables": {
+          "LAB_ENVIRONMENT": "staging",
+          "PORT": "3000",
+          "NODE_ENV": "production"
+        },
+        "region": {
+          "us-west2": {
+            "numReplicas": 1
+          }
+        },
+        "limits": {
+          "cpu": 1,
+          "memoryBytes": 500000000,
+          "pidLimit": 1000
+        }
+      },
+      "live": {
+        "source": {
+          "image": null,
+          "repo": null
+        },
+        "latestDeployment": null,
+        "activeDeployments": [],
+        "healthcheckPath": "/readyz",
+        "healthcheckTimeout": 60,
+        "numReplicas": 1,
+        "startCommand": "node dist/src/main.js",
+        "restartPolicyType": "ON_FAILURE",
+        "restartPolicyMaxRetries": 3,
+        "sleepApplication": false,
+        "domains": {
+          "serviceDomains": [
+            {
+              "domain": "catalog-live.up.railway.app",
+              "targetPort": 3000
+            }
+          ]
+        },
+        "variables": {
+          "LAB_ENVIRONMENT": "live",
+          "PORT": "3000",
+          "NODE_ENV": "production"
+        },
+        "region": {
+          "us-west2": {
+            "numReplicas": 1
+          }
+        },
+        "limits": {
+          "cpu": 1,
+          "memoryBytes": 500000000,
+          "pidLimit": 1000
+        }
+      }
+    }
+  },
+  "checks": [
+    {
+      "observedAt": "2026-09-06T23:42:40.356Z",
+      "exitCode": 0,
+      "outcome": "verified",
+      "targetName": "staging",
+      "target": {
+        "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+        "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+        "environmentId": "80bb920f-55eb-479c-b395-cacfb78344c3",
+        "url": "https://catalog-staging-55dc.up.railway.app"
+      },
+      "provider": {
+        "sourceImage": null,
+        "latestId": null,
+        "active": [],
+        "configurationFingerprint": "2b0e4159602c6689fe30cb20a536c47a053415fe80f97d5d58e5bb095b3213b9"
+      },
+      "scope": "read-only preflight; no hosted acceptance implied"
+    },
+    {
+      "observedAt": "2026-09-06T23:42:40.775Z",
+      "exitCode": 0,
+      "outcome": "verified",
+      "targetName": "live",
+      "target": {
+        "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+        "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+        "environmentId": "b78392fc-1a1b-40a4-a209-bb2260b106e2",
+        "url": "https://catalog-live.up.railway.app"
+      },
+      "provider": {
+        "sourceImage": null,
+        "latestId": null,
+        "active": [],
+        "configurationFingerprint": "af3fb8c6c8a1cdbf6b981d32b40f8a7a5722c5082eecf20b1c22241dbd6f8b1d"
+      },
+      "scope": "read-only preflight; no hosted acceptance implied"
+    }
+  ],
+  "demonstrated": [
+    "Environment-scoped access for both configured targets",
+    "Provider configuration readback through the real Railway adapter"
+  ],
+  "notDemonstrated": [
+    "Container publication or digest-qualified image deployment",
+    "Reachable application endpoints or live observation windows",
+    "Uncertain-outcome reconciliation or application rollback",
+    "Protected GitHub Actions deployment execution"
+  ]
+}

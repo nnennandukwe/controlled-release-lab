@@ -3,6 +3,11 @@
 The hosted A → B → A rehearsal has not yet run. Provider fixtures are synthetic
 contract examples, not captured Railway deployment evidence.
 
+The dedicated lab's staging and live resources are configured, and real read-only
+operator preflights passed on September 6, 2026. The [connection record](railway-connection.md)
+contains the observations and credential/workflow boundary. Local operator access
+is verified; application deployment and protected Actions execution remain pending.
+
 ## Account and resource prerequisites
 
 Review the exact publication and hosting operation with the owner. Confirm
