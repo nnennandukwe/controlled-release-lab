@@ -1,12 +1,14 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type { Hosting, Snapshot } from './railway.js';
-import { acquireLock, fingerprint, imageSchema, Journal, LabError, loadAttempt, loadRecord, releaseReconciledLock, targetSchema, type EvidenceRecord, type Target } from './evidence.js';
+import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, loadAttempt, loadRecord, releaseReconciledLock, targetSchema, type EvidenceRecord, type Target } from './evidence.js';
 import { observe, observationOptionsSchema } from './observe.js';
-export type Operation = { operation: 'deploy' | 'rollback' | 'observe' | 'reconcile'; targetName: 'staging' | 'live'; target: Target; image?: string; sourceSha?: string; deploymentId?: string; restoreRecord?: string; attempt?: string; apply?: boolean; durationSeconds?: number; maxDurationSeconds?: number; rate?: number; maxRequests?: number };
+export type Operation = { operation: 'deploy' | 'rollback' | 'observe' | 'reconcile'; targetName: 'staging' | 'live'; target: Target; changeReference?: string; image?: string; sourceSha?: string; deploymentId?: string; restoreRecord?: string; attempt?: string; apply?: boolean; durationSeconds?: number; maxDurationSeconds?: number; rate?: number; maxRequests?: number };
 export async function execute(request: Operation, hosting: Hosting, root: string, transport: typeof fetch = fetch) {
   targetSchema.parse(request.target);
   const mutating = request.operation === 'deploy' || request.operation === 'rollback';
+  const changeReference = request.changeReference === undefined ? null : changeReferenceSchema.parse(request.changeReference);
+  if (mutating && request.apply && request.targetName === 'live' && !changeReference) throw new LabError('CHANGE_REFERENCE_REQUIRED', 'Supply a change reference with --change-reference before applying a live deployment or rollback.');
   if (request.operation === 'deploy') { imageSchema.parse(request.image); z.string().regex(/^[a-f0-9]{40}$/).parse(request.sourceSha); }
   if (request.operation === 'rollback') z.string().uuid().parse(request.deploymentId);
   const options = observationOptionsSchema.parse({ durationSeconds: request.durationSeconds, maxDurationSeconds: request.maxDurationSeconds, rate: request.rate, maxRequests: request.maxRequests });
@@ -25,7 +27,7 @@ export async function execute(request: Operation, hosting: Hosting, root: string
   await hosting.assertScope();
   if (mutating && !request.apply) {
     await hosting.snapshot();
-    return { outcome: 'preview', reasonCodes: ['APPLY_REQUIRED'], recordPath: '', image: request.image ?? prior?.requestedImage, target: request.targetName };
+    return { outcome: 'preview', reasonCodes: ['APPLY_REQUIRED'], recordPath: '', image: request.image ?? prior?.requestedImage, target: request.targetName, changeReference };
   }
   const journal = new Journal(root);
   const release = mutating ? await acquireLock(root, request.target, journal.attemptId) : undefined;
@@ -33,6 +35,7 @@ export async function execute(request: Operation, hosting: Hosting, root: string
   let recordSaved = false;
   const record: EvidenceRecord = {
     schemaVersion: 1, attemptId: journal.attemptId, operation: request.operation, targetName: request.targetName, target: request.target,
+    changeReference: request.operation === 'reconcile' ? prior?.changeReference ?? null : changeReference,
     requestedImage: request.operation === 'deploy' ? request.image! : prior?.requestedImage ?? null, requestedSourceSha: request.operation === 'deploy' ? request.sourceSha! : prior?.requestedSourceSha ?? null,
     rollbackTarget: request.deploymentId ?? prior?.rollbackTarget ?? null, deploymentId: request.operation === 'reconcile' ? prior?.deploymentId ?? null : null,
     configurationFingerprint: prior?.configurationFingerprint ?? null, startedAt: new Date().toISOString(), finishedAt: null,

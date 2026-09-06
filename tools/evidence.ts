@@ -7,6 +7,7 @@ export class LabError extends Error {
   constructor(public code: string, message: string, public outcome: 'failed' | 'blocked' | 'unknown_outcome' = 'blocked') { super(message); }
 }
 export const imageSchema = z.string().regex(/^ghcr\.io\/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$/, 'Use a GHCR image qualified by sha256 digest.');
+export const changeReferenceSchema = z.string().trim().min(3).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:/#-]*$/, 'Use a change identifier or URL without spaces or query parameters.');
 export const targetSchema = z.object({
   projectId: z.string().uuid(), serviceId: z.string().uuid(), environmentId: z.string().uuid(),
   url: z.url().refine(value => { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash; }, 'Use the HTTPS origin without credentials, path, query, or fragment.'),
@@ -14,6 +15,7 @@ export const targetSchema = z.object({
 export type Target = z.infer<typeof targetSchema>;
 export const recordSchema = z.object({
   schemaVersion: z.literal(1), attemptId: z.string().uuid(), operation: z.enum(['deploy', 'rollback', 'observe', 'reconcile']),
+  changeReference: changeReferenceSchema.nullable().optional(),
   targetName: z.enum(['staging', 'live']), target: targetSchema,
   requestedImage: imageSchema.nullable(), requestedSourceSha: z.string().regex(/^[a-f0-9]{40}$/).nullable(),
   rollbackTarget: z.string().uuid().nullable(), deploymentId: z.string().uuid().nullable(),

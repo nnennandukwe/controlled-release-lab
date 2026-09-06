@@ -55,7 +55,9 @@ npm run lab -- observe --target staging --duration-seconds 60 --rate 2 --max-req
 Hosted commands require a target and its environment-scoped
 `RAILWAY_PROJECT_TOKEN`. Keep that credential in the operator's secret store,
 outside the application and coding-agent environment. Deployment and rollback
-preview by default; `--apply` performs the operation.
+preview by default; `--apply` performs the operation. Live application also
+requires `--change-reference` (a change identifier or review URL) for the audit
+record. The reference does not replace release authorization.
 
 Observations preserve the requested sample count by waiting for concurrency
 capacity. `--duration-seconds` is the minimum window; `--max-duration-seconds`

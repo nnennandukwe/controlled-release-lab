@@ -20,6 +20,9 @@ on:
         type: number
         default: 300
         required: true
+      change_reference:
+        description: Change identifier or URL (required for live apply)
+        type: string
       image:
         description: Digest-qualified GHCR image (deploy)
         type: string
@@ -81,6 +84,7 @@ jobs:
           LAB_TARGET: ${{ inputs.target }}
           LAB_APPLY: ${{ inputs.apply }}
           LAB_MAX_DURATION_SECONDS: ${{ inputs.max_duration_seconds }}
+          LAB_CHANGE_REFERENCE: ${{ inputs.change_reference }}
           LAB_IMAGE: ${{ inputs.image }}
           LAB_SOURCE_SHA: ${{ inputs.source_sha }}
           LAB_DEPLOYMENT: ${{ inputs.deployment }}

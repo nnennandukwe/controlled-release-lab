@@ -25,6 +25,7 @@ Options:
   --restore-record PATH      Verified earlier record.json and its .sha256 file
   --attempt UUID             Original uncertain attempt under the work directory
   --apply                    Execute deploy/rollback (provider credentials still required)
+  --change-reference REF     Change identifier or URL; required for live --apply
   --duration-seconds N       Minimum observation window, 0.1-300 seconds (default 60)
   --max-duration-seconds N   Total traffic deadline, 0.1-300 seconds (default 300)
   --rate N                   Launch-rate ceiling, 1-10 requests/second (default 2)
@@ -47,7 +48,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
   let heartbeat: NodeJS.Timeout | undefined;
   try {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, strict: true, options: {
-      help: { type: 'boolean' }, target: { type: 'string' }, config: { type: 'string' }, image: { type: 'string' }, 'source-sha': { type: 'string' }, deployment: { type: 'string' }, 'restore-record': { type: 'string' }, attempt: { type: 'string' }, apply: { type: 'boolean' }, 'duration-seconds': { type: 'string' }, 'max-duration-seconds': { type: 'string' }, rate: { type: 'string' }, 'max-requests': { type: 'string' }, 'work-dir': { type: 'string' },
+      help: { type: 'boolean' }, target: { type: 'string' }, config: { type: 'string' }, image: { type: 'string' }, 'source-sha': { type: 'string' }, deployment: { type: 'string' }, 'restore-record': { type: 'string' }, attempt: { type: 'string' }, apply: { type: 'boolean' }, 'change-reference': { type: 'string' }, 'duration-seconds': { type: 'string' }, 'max-duration-seconds': { type: 'string' }, rate: { type: 'string' }, 'max-requests': { type: 'string' }, 'work-dir': { type: 'string' },
     } });
     if (values.help) { stdout(help); return 0; }
     if (positionals.length !== 1) throw new LabError('COMMAND_REQUIRED', 'Choose one command. Run npm run lab -- --help.', 'failed');
@@ -66,6 +67,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       return 0;
     }
     const request: Operation = { operation, targetName, target, apply: values.apply ?? false };
+    if (values['change-reference'] !== undefined) request.changeReference = values['change-reference'];
     if (values.image !== undefined) request.image = values.image;
     if (values['source-sha'] !== undefined) request.sourceSha = values['source-sha'];
     if (values.deployment !== undefined) request.deploymentId = values.deployment;

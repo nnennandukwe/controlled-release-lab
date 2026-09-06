@@ -59,6 +59,7 @@ export async function previousOperation(environment: NodeJS.ProcessEnv, transpor
 export function workflowArguments(environment: NodeJS.ProcessEnv): string[] {
   const operation = z.enum(['doctor', 'deploy', 'observe', 'rollback', 'reconcile']).parse(environment.LAB_OPERATION);
   const args = [operation, '--target', z.enum(['staging', 'live']).parse(environment.LAB_TARGET)];
+  if (environment.LAB_CHANGE_REFERENCE) args.push('--change-reference', environment.LAB_CHANGE_REFERENCE);
   if (operation !== 'doctor' && environment.LAB_MAX_DURATION_SECONDS !== undefined) {
     const maximum = z.coerce.number().min(60).max(300).parse(environment.LAB_MAX_DURATION_SECONDS);
     args.push('--max-duration-seconds', String(maximum));

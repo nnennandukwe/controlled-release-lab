@@ -26,6 +26,37 @@ function host() {
   return hosting;
 }
 const traffic = vi.fn(async () => Response.json({ sourceSha, environment: 'staging', deploymentId, requestId: '55555555-5555-4555-8555-555555555555', ranking: 'original', results: [{ id: 'keyboard-compact' }, { id: 'keyboard-full' }] })) as typeof fetch;
+it.each(['deploy', 'rollback'] as const)('requires a change reference before live %s provider access', async operation => {
+  const hosting = host();
+  await expect(execute({ ...request, operation, targetName: 'live', deploymentId }, hosting, await root(), traffic)).rejects.toThrow('change reference');
+  expect(hosting.assertScope).not.toHaveBeenCalled();
+  expect(hosting.updateImage).not.toHaveBeenCalled();
+  expect(hosting.rollback).not.toHaveBeenCalled();
+});
+it('records the live change reference and preserves it through reconciliation', async () => {
+  const hosting = host();
+  const deploy = hosting.deploy;
+  hosting.deploy = vi.fn(async () => { await deploy(); throw new LabError('PROVIDER_TRANSPORT', 'Lost response', 'unknown_outcome'); });
+  const liveTraffic: typeof fetch = async () => Response.json({ ...(await (await traffic('https://example.com')).json()), environment: 'live' });
+  const directory = await root();
+  const original = await execute({ ...request, targetName: 'live', changeReference: 'LAB-123' }, hosting, directory, liveTraffic);
+  const record = await loadRecord(original.recordPath);
+  expect(record.changeReference).toBe('LAB-123');
+  const reconciled = await execute({ ...request, targetName: 'live', operation: 'reconcile', attempt: record.attemptId, changeReference: 'LAB-OTHER' }, hosting, directory, liveTraffic);
+  expect(reconciled.outcome).toBe('verified');
+  expect((await loadRecord(reconciled.recordPath)).changeReference).toBe('LAB-123');
+});
+it('records a new rollback change reference rather than borrowing the baseline reference', async () => {
+  const directory = await root();
+  const liveTraffic: typeof fetch = async () => Response.json({ ...(await (await traffic('https://example.com')).json()), environment: 'live' });
+  const baseline = await execute({ ...request, targetName: 'live', changeReference: 'LAB-123' }, host(), directory, liveTraffic);
+  const hosting = host();
+  await hosting.updateImage(image);
+  await hosting.deploy();
+  const restored = await execute({ ...request, operation: 'rollback', targetName: 'live', deploymentId, restoreRecord: baseline.recordPath, changeReference: 'LAB-124' }, hosting, directory, liveTraffic);
+  expect(restored.outcome).toBe('verified');
+  expect((await loadRecord(restored.recordPath)).changeReference).toBe('LAB-124');
+});
 it('rejects a mutable image without making a deployment mutation', async () => {
   const hosting = host();
   await expect(execute({ ...request, image: 'ghcr.io/example/lab:latest' }, hosting, await root(), traffic)).rejects.toThrow();

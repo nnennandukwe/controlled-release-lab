@@ -56,6 +56,12 @@ it('forwards the hosted operator-selected traffic deadline to the CLI', () => {
   expect(workflowArguments({ LAB_OPERATION: 'observe', LAB_TARGET: 'staging', LAB_MAX_DURATION_SECONDS: '90' }))
     .toEqual(['observe', '--target', 'staging', '--max-duration-seconds', '90']);
 });
+it('forwards the change reference selected for a hosted operation', () => {
+  expect(workflowArguments({ LAB_OPERATION: 'deploy', LAB_TARGET: 'live', LAB_CHANGE_REFERENCE: 'LAB-123', LAB_IMAGE: 'image', LAB_SOURCE_SHA: 'sha' }))
+    .toContain('--change-reference');
+  expect(workflowArguments({ LAB_OPERATION: 'observe', LAB_TARGET: 'live', LAB_CHANGE_REFERENCE: 'LAB-123' }))
+    .toEqual(['observe', '--target', 'live', '--change-reference', 'LAB-123']);
+});
 it.each(['30', '301', 'not-a-number'])('rejects hosted traffic deadline %s before operation execution', async value => {
   expect(() => workflowArguments({ LAB_OPERATION: 'observe', LAB_TARGET: 'live', LAB_MAX_DURATION_SECONDS: value })).toThrow();
 });

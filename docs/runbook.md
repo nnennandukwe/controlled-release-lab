@@ -122,6 +122,19 @@ After staging succeeds, deploy A's same digest to live and compare both records.
 Build 1 supports the operation and comparison; Build 2 will enforce the signed
 staging-to-live promotion policy.
 
+Every live deploy or rollback with apply=true requires the workflow input
+`change_reference`, or `--change-reference` locally, before provider access.
+Use an existing change identifier or review URL, such as the PR authorizing the
+change. The validated reference accepts 3-200 ASCII letters, digits, and
+`._:/#-`; spaces and URL query parameters are rejected. This validates its
+format, not the existence or approval state of an external change request.
+GitHub environment review and scoped credentials still enforce authorization.
+
+The reference is preserved in the intent and final evidence records.
+Reconciliation retains the original reference; a new rollback requires its
+own supplied reference. Older records remain readable without this additive
+field and do not gain a retroactive change reference.
+
 ## Measure the baseline
 
 ```bash
@@ -156,7 +169,8 @@ Locally:
 ```bash
 LAB_PREVIOUS_DEPLOYMENT='replace-with-A-deployment-uuid'
 LAB_RESTORE_RECORD='work/attempts/replace-with-A-attempt-uuid/record.json'
-npm run lab -- rollback --target live --deployment "$LAB_PREVIOUS_DEPLOYMENT" --restore-record "$LAB_RESTORE_RECORD"
+LAB_CHANGE_REFERENCE='replace-with-existing-change-reference'
+npm run lab -- rollback --target live --deployment "$LAB_PREVIOUS_DEPLOYMENT" --restore-record "$LAB_RESTORE_RECORD" --change-reference "$LAB_CHANGE_REFERENCE"
 ```
 
 Keep the .sha256 file with its record. Rollback rejects a wrong-target, unverified,

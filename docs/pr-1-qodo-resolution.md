@@ -27,3 +27,10 @@ implemented and raised two additional recommendations:
   fixtures establish provider behavior. The runbook's A-to-B-to-A rehearsal and
   uncertain-outcome reconciliation require authorized resources and release
   credentials. This recommendation remains open until that evidence exists.
+
+Review of `de43214` confirmed the deadline fix and added
+`7e68ccb6-205c-4abb-9adf-9588938f8173`: live changes need an audit reference.
+The workflow now accepts `change_reference`, the CLI accepts `--change-reference`,
+and the operation rejects live apply without a valid reference before provider
+access. Intent/final records carry the reference and reconciliation preserves
+the original one. This is traceability metadata, not substituted approval.
