@@ -2,7 +2,7 @@
 
 Keep each build plan in this hidden, version-controlled directory.
 
-1. [Hosted baseline and recovery](build-01-hosted-baseline-recovery.md) — approved for implementation.
+1. [Hosted baseline and recovery](build-01-hosted-baseline-recovery.md) — implemented; [hosted execution](../docs/hosted-rehearsal.md) recorded separately. PR review/merge and protected CI deployment access retain their own status.
 2. Attestation and authorized promotion — plan separately before implementation.
 3. Controlled feature exposure — plan separately before implementation.
 4. Regression, repair, and completed release — plan separately before implementation.

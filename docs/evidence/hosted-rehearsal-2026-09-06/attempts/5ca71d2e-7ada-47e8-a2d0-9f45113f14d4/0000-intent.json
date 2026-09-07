@@ -1,0 +1,38 @@
+{
+  "at": "2026-09-07T00:03:06.043Z",
+  "phase": "intent",
+  "observation": {
+    "schemaVersion": 1,
+    "attemptId": "5ca71d2e-7ada-47e8-a2d0-9f45113f14d4",
+    "operation": "deploy",
+    "targetName": "live",
+    "target": {
+      "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+      "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+      "environmentId": "b78392fc-1a1b-40a4-a209-bb2260b106e2",
+      "url": "https://catalog-live.up.railway.app"
+    },
+    "changeReference": "https://github.com/nnennandukwe/controlled-release-lab/pull/1",
+    "requestedImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:87a99d8bd78d280705f4b30b8947030217d12e3848649ea9cda005f7fc71bd0c",
+    "requestedSourceSha": "a635c9ea83a0a484fbffb673d949665bebfcca44",
+    "rollbackTarget": null,
+    "deploymentId": null,
+    "configurationFingerprint": "af3fb8c6c8a1cdbf6b981d32b40f8a7a5722c5082eecf20b1c22241dbd6f8b1d",
+    "startedAt": "2026-09-07T00:03:05.912Z",
+    "finishedAt": null,
+    "outcome": "unknown_outcome",
+    "reasonCodes": [],
+    "recoveryInstruction": "",
+    "observations": [
+      {
+        "phase": "before",
+        "snapshot": {
+          "sourceImage": null,
+          "latestId": null,
+          "active": [],
+          "configurationFingerprint": "af3fb8c6c8a1cdbf6b981d32b40f8a7a5722c5082eecf20b1c22241dbd6f8b1d"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "sourceSha": "61d136f96242202d43f2637fa284985a42b589f7",
+  "imageTag": "ghcr.io/nnennandukwe/controlled-release-lab:rehearsal-b-61d136f96242",
+  "buildRunId": "local-rehearsal-b-1788739481294",
+  "platform": "linux/amd64",
+  "producer": "authorized local operator",
+  "image": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:ebe9826ed42dbcc0963f79257121d615f2beb89ce7bb3210f0740666ef0d8325",
+  "publishedAt": "2026-09-07T00:04:54.381Z",
+  "provenance": "not-attested-build-1",
+  "tests": "68 tests, typecheck, exact-image container smoke passed"
+}

@@ -14,7 +14,8 @@ the current Qodo review status must still be checked against the pushed PR head.
 
 The observer's explicit time budget refines Build 1's original fixed-slot
 measurement proposal in response to this review. It does not establish rollout
-thresholds or relax sample sufficiency. Hosted acceptance remains pending.
+thresholds or relax sample sufficiency. Hosted acceptance was pending at that review;
+the later execution is recorded below.
 
 The completed follow-up review of `3e4a1c3` marked all five findings above as
 implemented and raised two additional recommendations:
@@ -22,11 +23,8 @@ implemented and raised two additional recommendations:
 - `120163f6-cd93-4ed1-a966-343cbe46cfe7`: the Operate workflow now exposes
   `max_duration_seconds`, passes it through `LAB_MAX_DURATION_SECONDS`, and
   validates and forwards it to the CLI. Tests cover forwarding and invalid bounds.
-- `45a6ac35-e252-4fde-9076-8e42722b0b5b`: real Railway recovery is not yet verified.
-  This is an outstanding hosted acceptance requirement, not a claim that local
-  fixtures establish provider behavior. The runbook's A-to-B-to-A rehearsal and
-  uncertain-outcome reconciliation require authorized resources and release
-  credentials. This recommendation remains open until that evidence exists.
+- `45a6ac35-e252-4fde-9076-8e42722b0b5b`: real Railway recovery was unverified.
+  The subsequent authorized execution and provider fixes are recorded below.
 
 Review of `de43214` confirmed the deadline fix and added
 `7e68ccb6-205c-4abb-9adf-9588938f8173`: live changes need an audit reference.
@@ -44,8 +42,49 @@ real staging/live setup and successful scoped-token preflights visible in this P
 The linked JSON records the checked source SHA, timestamps, target identities,
 provider snapshots, and configuration fingerprints, without credential values.
 
-This establishes local operator connectivity. It does not settle the recovery
-finding: no image deployment, uncertain-outcome reconciliation, live traffic
-measurement, or rollback has run. That finding remains an outstanding hosted
-acceptance requirement. GitHub Actions deployment credentials are also not
-configured; local Keychain access must not be described as protected CI access.
+That connection update established local operator connectivity only. The later
+execution below supplies deployment/recovery evidence. GitHub Actions deployment
+credentials remain unconfigured; local Keychain access is not protected CI access.
+
+## Hosted recovery and provider fixes
+
+The [rehearsal report](hosted-rehearsal.md) and linked original records address
+`45a6ac35-e252-4fde-9076-8e42722b0b5b` with actual Railway execution. A staging
+deployment response was deliberately lost, a duplicate apply was blocked, and
+ordinary reconciliation verified the live service while preserving the unknown
+record. The A-to-B-to-A exercise found two real provider-contract defects:
+
+- Native rollback returns `Boolean!`, not the object shown in the documentation
+  example. The adapter now accepts the scalar acknowledgment, retains uncertainty,
+  and requires read-only reconciliation instead of inventing a deployment ID.
+- Native rollback leaves the service source on the newer image. The operator now
+  aligns that source to the saved recovery digest and retains the existing guard
+  against unexplained deployments during the update.
+
+The original HTTP 400, blocked source mismatch, authorized repair, and subsequent
+clean normal-command replays are all retained. Captured schema/response fixtures
+and failure-first regressions cover both bugs. Neither a synthetic provider nor
+an application-only version check substitutes for this hosted evidence.
+
+## Concurrent-writer boundary
+
+Review of `782b749` added `2d1f49ae-605d-4e13-a3ac-6f07d339cfcf`, **Rollback can
+erase a newer deployment**. A final provider snapshot now runs after source
+journaling, immediately before native rollback. Observed drift produces
+`ROLLBACK_STATE_CHANGED`, sends no native rollback, and preserves the lock.
+A regression exercises another deployment appearing at that boundary.
+
+Review of `e15c5b3` reported that mitigation as implemented and added
+`24477126-2a4f-482e-bc8d-dd029cafae4b`, **Operators lose rollback drift evidence**.
+The refused provider snapshot is now preserved in both the final record and a
+durable `rollback-drift` journal event before returning the blocked result.
+The regression asserts the competing deployment identity survives in both places.
+
+This mitigates observable drift; it does not provide atomic compare-and-swap.
+Railway exposes no conditional version argument on this mutation. The runbook
+now explicitly limits this lab to one deployment writer, using one shared local
+work directory or the serialized Actions path. Trusted administrators must not
+deploy through the dashboard or another API client concurrently. Supporting
+independent competing writers would require a stronger provider/authority boundary.
+The current Qodo attribution must be read separately; this document does not
+claim the residual provider limitation disappeared.

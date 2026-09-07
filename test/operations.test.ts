@@ -182,7 +182,13 @@ it('refuses native rollback when provider state changes after source readback', 
   const result = await execute({ ...request, operation: 'rollback', deploymentId, restoreRecord: baseline.recordPath }, hosting, directory, traffic);
   expect(result).toMatchObject({ outcome: 'unknown_outcome', reasonCodes: ['ROLLBACK_STATE_CHANGED'] });
   expect(hosting.rollback).not.toHaveBeenCalled();
-  expect((await loadRecord(result.recordPath)).deploymentId).toBeNull();
+  const record = await loadRecord(result.recordPath);
+  expect(record.deploymentId).toBeNull();
+  expect(record.observations).toContainEqual({ phase: 'rollback-drift', snapshot: { ...stable, latestId: competingId, active: [{ ...deployment, id: competingId }] } });
+  const directoryEntries = await readdir(join(directory, 'attempts', result.attemptId!));
+  const driftFile = directoryEntries.find(name => name.endsWith('-rollback-drift.json'));
+  expect(driftFile).toBeDefined();
+  expect(JSON.parse(await readFile(join(directory, 'attempts', result.attemptId!, driftFile!), 'utf8')).observation.latestId).toBe(competingId);
   await expect(execute(request, hosting, directory, traffic)).rejects.toMatchObject({ code: 'OPERATION_LOCKED' });
 });
 it('reconciles an accepted deployment after its response was lost without repeating mutation', async () => {

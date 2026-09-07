@@ -71,7 +71,12 @@ export async function execute(request: Operation, hosting: Hosting, root: string
       } else {
         // Recheck after the durable source journal, immediately before the
         // destructive call. This detects observed drift, not a provider CAS.
-        if (fingerprint(await hosting.snapshot()) !== fingerprint(configured)) throw new LabError('ROLLBACK_STATE_CHANGED', 'Provider state changed before rollback. Inspect and reconcile; no native rollback was sent.');
+        const rollbackState = await hosting.snapshot();
+        if (fingerprint(rollbackState) !== fingerprint(configured)) {
+          record.observations.push({ phase: 'rollback-drift', snapshot: rollbackState });
+          await journal.append('rollback-drift', rollbackState);
+          throw new LabError('ROLLBACK_STATE_CHANGED', 'Provider state changed before rollback. Inspect and reconcile; no native rollback was sent.');
+        }
         await hosting.rollback(request.deploymentId!);
         await journal.append('rollback-acknowledged', { rollbackTarget: request.deploymentId, acknowledged: true });
         throw new LabError('ROLLBACK_REQUIRES_RECONCILIATION', 'Railway acknowledged rollback without a deployment ID. Run reconcile with this attempt and the same work directory to verify the restored image and live behavior.', 'unknown_outcome');

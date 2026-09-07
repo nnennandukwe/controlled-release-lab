@@ -12,7 +12,10 @@ UI. Bootstrap access observations below are historical. Railway is now configure
 for the dedicated lab, and both local operator preflights passed with scoped
 credentials. See the [Railway connection record](railway-connection.md) and its
 timestamped evidence. The account was verified as Hobby; hosted digest/rollback
-acceptance and protected GitHub Actions deployment access remain outstanding.
+acceptance subsequently passed in the authorized [local rehearsal](hosted-rehearsal.md).
+GHCR images are now public; the source repo remains private. Protected GitHub
+Actions deployment access remains outstanding. The original bootstrap observations
+and proposed criteria below are historical; the rehearsal records executed results.
 
 The Build 1 implementation plan is saved in
 [.plan](../.plan/build-01-hosted-baseline-recovery.md). Builds 2–5 will be planned

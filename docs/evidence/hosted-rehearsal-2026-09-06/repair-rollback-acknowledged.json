@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-09-07T00:10:50.939Z",
+  "originalAttempt": "95195424-70c1-42c9-84fa-868d0da731bb",
+  "acknowledged": true,
+  "mutationCalls": 1,
+  "scope": "One corrected native rollback, not proof of serving state; ordinary read-only reconciliation is required."
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-09-07T00:06:58.931Z",
+  "originalAttempt": "68e6ff1e-8734-4627-8878-4e33a98631d2",
+  "reconciledAttempt": "b01fe900-ad5a-405a-864e-df9ccd99fd31",
+  "originalOutcome": "unknown_outcome",
+  "reconciledOutcome": "verified",
+  "originalRecordUnchanged": true,
+  "lockReleased": true,
+  "reconciledDeploymentId": "0d76e127-7385-4e31-9a14-2b3d1fe5211e",
+  "providerAcceptedDeploymentId": "0d76e127-7385-4e31-9a14-2b3d1fe5211e"
+}

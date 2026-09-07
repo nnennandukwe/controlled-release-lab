@@ -11,8 +11,9 @@ observations and checksummed records under `work/attempts/`. Those records let
 an operator investigate failures and verify deployment or application recovery.
 
 This is for engineers practicing delivery with a small hosted demo. The catalog
-and traffic are synthetic. Build 1 implements the baseline and recovery tools;
-**hosted Railway acceptance is pending**. Attestation enforcement, LaunchDarkly
+and traffic are synthetic. Build 1's hosted baseline and application recovery
+were exercised on Railway; see the [rehearsal and evidence](docs/hosted-rehearsal.md)
+and [live catalog](https://catalog-live.up.railway.app). Attestation enforcement, LaunchDarkly
 exposure, the seeded regression, and completed feature release belong to Builds
 2–4. Local checks alone do not complete the release exercise.
 
@@ -85,15 +86,19 @@ or feature-release completion.
 
 ## Current limits
 
-- Railway digest compatibility remains a hosted acceptance test. The adapter
-  requires digest-qualified `meta.image` in the deployment record and blocks
-  when absent. Local provider fixtures are synthetic.
+- Railway digest preservation, real response-loss reconciliation, and native
+  rollback were exercised. The adapter requires digest-qualified `meta.image`
+  and blocks when absent; regression fixtures include captured provider data.
+- Native rollback acknowledges without a deployment ID. Apply exits 2 and retains
+  the lock until a separate reconcile verifies recovery. The lab requires one
+  deployment writer; its checks cannot atomically exclude dashboard/API changes.
 - Railway application rollback and LaunchDarkly feature disablement are different
   operations. This build implements the application recovery path.
 - Retain earlier images, configuration, provider deployments, and evidence.
   Expired rollback targets or missing evidence require operator intervention.
-- Public source and images are the chosen distribution model when ready.
-  Publication and paid hosting require explicit operational approval.
+- GHCR images are public for the authorized rehearsal. The source repo remains
+  private. Protected GitHub deployment access still requires supported environment
+  approval settings; the rehearsal used scoped local operator credentials.
 - There is no runtime integration with ThreadLoop, GAAP, or `workshop-platform`.
 
 ## Plans and requirements

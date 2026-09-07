@@ -1,0 +1,31 @@
+{
+  "at": "2026-09-07T00:19:59.595Z",
+  "url": "https://catalog-live.up.railway.app/api/search?q=keyboard",
+  "status": 200,
+  "body": {
+    "query": "keyboard",
+    "results": [
+      {
+        "id": "keyboard-compact",
+        "name": "Compact Mechanical Keyboard",
+        "description": "Quiet switches in a portable keyboard.",
+        "category": "workspace",
+        "priceCents": 8900
+      },
+      {
+        "id": "keyboard-full",
+        "name": "Full Size Keyboard",
+        "description": "A complete desk keyboard with number pad.",
+        "category": "workspace",
+        "priceCents": 6900
+      }
+    ],
+    "ranking": "original",
+    "requestId": "ef46fe08-4be8-44c1-90b7-460d2f32f5f0",
+    "sourceSha": "a635c9ea83a0a484fbffb673d949665bebfcca44",
+    "buildRunId": "local-rehearsal-a-1788739021243",
+    "catalogVersion": "1",
+    "environment": "live",
+    "deploymentId": "677c904e-9f93-4cea-97bc-43139932cd76"
+  }
+}

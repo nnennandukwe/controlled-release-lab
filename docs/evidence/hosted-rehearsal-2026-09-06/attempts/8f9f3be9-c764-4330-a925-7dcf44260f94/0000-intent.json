@@ -1,0 +1,58 @@
+{
+  "at": "2026-09-07T00:11:13.530Z",
+  "phase": "intent",
+  "observation": {
+    "schemaVersion": 1,
+    "attemptId": "8f9f3be9-c764-4330-a925-7dcf44260f94",
+    "operation": "reconcile",
+    "targetName": "live",
+    "target": {
+      "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+      "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+      "environmentId": "b78392fc-1a1b-40a4-a209-bb2260b106e2",
+      "url": "https://catalog-live.up.railway.app"
+    },
+    "changeReference": "https://github.com/nnennandukwe/controlled-release-lab/pull/1",
+    "requestedImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:87a99d8bd78d280705f4b30b8947030217d12e3848649ea9cda005f7fc71bd0c",
+    "requestedSourceSha": "a635c9ea83a0a484fbffb673d949665bebfcca44",
+    "rollbackTarget": "18a8ff3d-d94f-4ac7-a0cd-447fd008c579",
+    "deploymentId": null,
+    "configurationFingerprint": "af3fb8c6c8a1cdbf6b981d32b40f8a7a5722c5082eecf20b1c22241dbd6f8b1d",
+    "startedAt": "2026-09-07T00:11:13.428Z",
+    "finishedAt": null,
+    "outcome": "unknown_outcome",
+    "reasonCodes": [],
+    "recoveryInstruction": "",
+    "observations": [
+      {
+        "phase": "before",
+        "snapshot": {
+          "sourceImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:ebe9826ed42dbcc0963f79257121d615f2beb89ce7bb3210f0740666ef0d8325",
+          "latestId": "230a9718-ebd2-4daf-88e0-1e95d2f02180",
+          "active": [
+            {
+              "id": "230a9718-ebd2-4daf-88e0-1e95d2f02180",
+              "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+              "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+              "environmentId": "b78392fc-1a1b-40a4-a209-bb2260b106e2",
+              "status": "SUCCESS",
+              "canRollback": true,
+              "image": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:87a99d8bd78d280705f4b30b8947030217d12e3848649ea9cda005f7fc71bd0c",
+              "metadataKeys": [
+                "duration",
+                "image",
+                "imageDigest",
+                "logsV2",
+                "reason",
+                "runtime",
+                "serviceManifest",
+                "volumeMounts"
+              ]
+            }
+          ],
+          "configurationFingerprint": "af3fb8c6c8a1cdbf6b981d32b40f8a7a5722c5082eecf20b1c22241dbd6f8b1d"
+        }
+      }
+    ]
+  }
+}

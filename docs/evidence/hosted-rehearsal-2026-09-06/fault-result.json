@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-09-07T00:05:22.005Z",
+  "teachingFixture": true,
+  "sourceSha": "61d136f96242202d43f2637fa284985a42b589f7",
+  "image": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:ebe9826ed42dbcc0963f79257121d615f2beb89ce7bb3210f0740666ef0d8325",
+  "directory": "work/hosted-rehearsal/faults/661c2e68-ee73-46d7-b88e-3eb415cf10ba",
+  "deploymentCalls": 1,
+  "dropped": true,
+  "duplicateApply": "OPERATION_LOCKED",
+  "original": {
+    "outcome": "unknown_outcome",
+    "reasonCodes": [
+      "PROVIDER_TRANSPORT"
+    ],
+    "recoveryInstruction": "Railway request did not complete. Reconcile before repeating any mutation. Reconcile attempt 68e6ff1e-8734-4627-8878-4e33a98631d2.",
+    "recordPath": "work/hosted-rehearsal/attempts/68e6ff1e-8734-4627-8878-4e33a98631d2/record.json",
+    "attemptId": "68e6ff1e-8734-4627-8878-4e33a98631d2"
+  },
+  "originalChecksum": "d325b6f970ccc5ae3a844d96fe85396f694a711bfaf70c3056a39662a4a7142f",
+  "next": "Use the ordinary lab reconcile command with this original attempt UUID and the same work directory. Preserve this unknown record."
+}

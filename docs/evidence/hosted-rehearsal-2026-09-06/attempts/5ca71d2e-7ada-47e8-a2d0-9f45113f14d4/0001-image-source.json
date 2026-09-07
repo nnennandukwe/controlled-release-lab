@@ -1,0 +1,10 @@
+{
+  "at": "2026-09-07T00:03:06.456Z",
+  "phase": "image-source",
+  "observation": {
+    "sourceImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:87a99d8bd78d280705f4b30b8947030217d12e3848649ea9cda005f7fc71bd0c",
+    "latestId": null,
+    "active": [],
+    "configurationFingerprint": "af3fb8c6c8a1cdbf6b981d32b40f8a7a5722c5082eecf20b1c22241dbd6f8b1d"
+  }
+}

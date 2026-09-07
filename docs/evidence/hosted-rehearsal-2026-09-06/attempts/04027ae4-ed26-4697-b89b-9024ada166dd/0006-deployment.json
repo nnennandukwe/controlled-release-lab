@@ -1,0 +1,21 @@
+{
+  "at": "2026-09-06T23:59:46.021Z",
+  "phase": "deployment",
+  "observation": {
+    "id": "9edf7bc3-d3a8-45d8-8ae3-64b11057ae30",
+    "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+    "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+    "environmentId": "80bb920f-55eb-479c-b395-cacfb78344c3",
+    "status": "DEPLOYING",
+    "canRollback": false,
+    "image": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:87a99d8bd78d280705f4b30b8947030217d12e3848649ea9cda005f7fc71bd0c",
+    "metadataKeys": [
+      "image",
+      "logsV2",
+      "reason",
+      "runtime",
+      "serviceManifest",
+      "volumeMounts"
+    ]
+  }
+}

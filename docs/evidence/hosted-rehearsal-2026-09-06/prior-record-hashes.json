@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-09-07T00:18:07.862Z",
+  "records": [
+    {
+      "name": "fault",
+      "path": "work/hosted-rehearsal/attempts/68e6ff1e-8734-4627-8878-4e33a98631d2/record.json",
+      "sha256": "d325b6f970ccc5ae3a844d96fe85396f694a711bfaf70c3056a39662a4a7142f"
+    },
+    {
+      "name": "rollback-a-live",
+      "path": "work/hosted-rehearsal/attempts/95195424-70c1-42c9-84fa-868d0da731bb/record.json",
+      "sha256": "9ff7f876b080e220a62489dd1ca458162fb05bfc6ba2d7fb73d7212657bde9d9"
+    },
+    {
+      "name": "rollback-a-live-repeat",
+      "path": "work/hosted-rehearsal/attempts/a668e687-069e-494e-b7f2-d1d961833f64/record.json",
+      "sha256": "ac140c00ead0392254d34c32931c84371e099058f99c8b1b92e3908db5d715f2"
+    }
+  ]
+}

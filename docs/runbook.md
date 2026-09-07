@@ -1,12 +1,11 @@
 # Hosted baseline and recovery runbook
 
-The hosted A → B → A rehearsal has not yet run. Provider fixtures are synthetic
-contract examples, not captured Railway deployment evidence.
-
-The dedicated lab's staging and live resources are configured, and real read-only
-operator preflights passed on September 6, 2026. The [connection record](railway-connection.md)
-contains the observations and credential/workflow boundary. Local operator access
-is verified; application deployment and protected Actions execution remain pending.
+The [hosted rehearsal](hosted-rehearsal.md) records A → B → A restoration,
+real lost-response reconciliation, and provider contract defects discovered and
+fixed during execution. It includes captured Railway responses and live samples.
+The [connection record](railway-connection.md) preserves the earlier setup evidence.
+These runs used the authorized local operator. Protected Actions deployment
+access remains a separate prerequisite.
 
 ## Account and resource prerequisites
 

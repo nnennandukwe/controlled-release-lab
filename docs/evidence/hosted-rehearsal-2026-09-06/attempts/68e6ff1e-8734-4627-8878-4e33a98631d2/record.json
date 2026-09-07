@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "attemptId": "68e6ff1e-8734-4627-8878-4e33a98631d2",
+  "operation": "deploy",
+  "changeReference": null,
+  "targetName": "staging",
+  "target": {
+    "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+    "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+    "environmentId": "80bb920f-55eb-479c-b395-cacfb78344c3",
+    "url": "https://catalog-staging-55dc.up.railway.app"
+  },
+  "requestedImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:ebe9826ed42dbcc0963f79257121d615f2beb89ce7bb3210f0740666ef0d8325",
+  "requestedSourceSha": "61d136f96242202d43f2637fa284985a42b589f7",
+  "rollbackTarget": null,
+  "deploymentId": null,
+  "configurationFingerprint": "2b0e4159602c6689fe30cb20a536c47a053415fe80f97d5d58e5bb095b3213b9",
+  "startedAt": "2026-09-07T00:05:21.160Z",
+  "finishedAt": "2026-09-07T00:05:21.923Z",
+  "outcome": "unknown_outcome",
+  "reasonCodes": [
+    "PROVIDER_TRANSPORT"
+  ],
+  "recoveryInstruction": "Railway request did not complete. Reconcile before repeating any mutation. Reconcile attempt 68e6ff1e-8734-4627-8878-4e33a98631d2.",
+  "observations": [
+    {
+      "phase": "before",
+      "snapshot": {
+        "sourceImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:87a99d8bd78d280705f4b30b8947030217d12e3848649ea9cda005f7fc71bd0c",
+        "latestId": "9edf7bc3-d3a8-45d8-8ae3-64b11057ae30",
+        "active": [
+          {
+            "id": "9edf7bc3-d3a8-45d8-8ae3-64b11057ae30",
+            "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+            "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+            "environmentId": "80bb920f-55eb-479c-b395-cacfb78344c3",
+            "status": "SUCCESS",
+            "canRollback": true,
+            "image": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:87a99d8bd78d280705f4b30b8947030217d12e3848649ea9cda005f7fc71bd0c",
+            "metadataKeys": [
+              "image",
+              "imageDigest",
+              "logsV2",
+              "reason",
+              "runtime",
+              "serviceManifest",
+              "volumeMounts"
+            ]
+          }
+        ],
+        "configurationFingerprint": "2b0e4159602c6689fe30cb20a536c47a053415fe80f97d5d58e5bb095b3213b9"
+      }
+    }
+  ]
+}

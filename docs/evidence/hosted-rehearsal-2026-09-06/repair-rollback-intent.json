@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-09-07T00:10:50.704Z",
+  "originalAttempt": "95195424-70c1-42c9-84fa-868d0da731bb",
+  "operatorSourceSha": "d57037264bb6ef6c186ec8877aa3718df4a99efe",
+  "changeReference": "https://github.com/nnennandukwe/controlled-release-lab/pull/1",
+  "authorization": "Owner explicitly authorized the lab deployment and necessary recovery in the active Codex session",
+  "reason": "The HTTP 400 query selected an object from deploymentRollback, but live introspection proves its type is Boolean. B remains active. Issue one corrected scalar rollback while preserving the original lock; reconcile the original afterward.",
+  "target": {
+    "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+    "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+    "environmentId": "b78392fc-1a1b-40a4-a209-bb2260b106e2",
+    "url": "https://catalog-live.up.railway.app"
+  },
+  "rollbackTarget": "18a8ff3d-d94f-4ac7-a0cd-447fd008c579",
+  "expectedImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:87a99d8bd78d280705f4b30b8947030217d12e3848649ea9cda005f7fc71bd0c",
+  "before": {
+    "sourceImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:ebe9826ed42dbcc0963f79257121d615f2beb89ce7bb3210f0740666ef0d8325",
+    "latestId": "af4680d9-f7c7-429f-afe2-2e71198e5dbc",
+    "active": [
+      {
+        "id": "af4680d9-f7c7-429f-afe2-2e71198e5dbc",
+        "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+        "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+        "environmentId": "b78392fc-1a1b-40a4-a209-bb2260b106e2",
+        "status": "SUCCESS",
+        "canRollback": true,
+        "image": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:ebe9826ed42dbcc0963f79257121d615f2beb89ce7bb3210f0740666ef0d8325",
+        "metadataKeys": [
+          "image",
+          "imageDigest",
+          "logsV2",
+          "reason",
+          "runtime",
+          "serviceManifest",
+          "volumeMounts"
+        ]
+      }
+    ],
+    "configurationFingerprint": "af3fb8c6c8a1cdbf6b981d32b40f8a7a5722c5082eecf20b1c22241dbd6f8b1d"
+  }
+}
