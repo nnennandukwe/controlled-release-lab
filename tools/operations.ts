@@ -56,18 +56,19 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     if (mutating) {
       const fresh = await hosting.snapshot();
       if (fingerprint(fresh) !== fingerprint(before)) throw new LabError('STATE_CHANGED', 'Provider state changed after preflight. Inspect it before creating a new attempt.');
+      // Native rollback restores a deployment, but Railway retains the service's
+      // configured source. Align it with the saved image for both mutation paths.
+      providerMutationAttempted = true;
+      await hosting.updateImage(record.requestedImage!);
+      const configured = await hosting.snapshot();
+      await journal.append('image-source', configured);
+      if (configured.sourceImage !== record.requestedImage) throw new LabError('IMAGE_REFERENCE_NOT_PRESERVED', 'Railway did not preserve the immutable reference. Reconcile this change and reassess host compatibility.');
+      // A readback cannot attribute a new deployment to our source update.
+      // Preserve the uncertain effect instead of adopting or retriggering it.
+      if (configured.latestId !== before.latestId) throw new LabError('UNATTRIBUTED_DEPLOYMENT', 'A deployment appeared during the image update. Reconcile its observed state without attributing it to this request or triggering another deployment.');
       if (request.operation === 'deploy') {
-        providerMutationAttempted = true;
-        await hosting.updateImage(record.requestedImage!);
-        const configured = await hosting.snapshot();
-        await journal.append('image-source', configured);
-        if (configured.sourceImage !== record.requestedImage) throw new LabError('IMAGE_REFERENCE_NOT_PRESERVED', 'Railway did not preserve the immutable reference. Reconcile this change and reassess host compatibility.');
-        // A readback cannot attribute a new deployment to our source update.
-        // Preserve the uncertain effect instead of adopting or retriggering it.
-        if (configured.latestId !== before.latestId) throw new LabError('UNATTRIBUTED_DEPLOYMENT', 'A deployment appeared during the image update. Reconcile its observed state without attributing it to this request or triggering another deployment.');
         record.deploymentId = await hosting.deploy();
       } else {
-        providerMutationAttempted = true;
         await hosting.rollback(request.deploymentId!);
         await journal.append('rollback-acknowledged', { rollbackTarget: request.deploymentId, acknowledged: true });
         throw new LabError('ROLLBACK_REQUIRES_RECONCILIATION', 'Railway acknowledged rollback without a deployment ID. Run reconcile with this attempt and the same work directory to verify the restored image and live behavior.', 'unknown_outcome');

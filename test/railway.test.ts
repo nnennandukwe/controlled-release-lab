@@ -66,7 +66,7 @@ it('uses the live Railway scalar rollback contract without inventing a deploymen
   const transport = vi.fn<typeof fetch>(async (_url, init) => {
     const { query } = JSON.parse(String(init?.body));
     if (/deploymentRollback\(id:\$id\)\s*\{/.test(query)) return Response.json({ errors: [{ message: 'Boolean cannot have a selection set' }] }, { status: 400 });
-    return Response.json({ data: { deploymentRollback: true } });
+    return Response.json(rollbackContract.acknowledgment.body);
   });
   await expect(new Railway('fixture-token', captured.target, transport)
     .rollback(captured.deploymentResponse.data.deployment.id)).resolves.toBeUndefined();

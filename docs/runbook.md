@@ -101,7 +101,9 @@ Add --apply only for the authorized operation. Local operators must share one
 work directory. Do not mix local and GitHub mutations concurrently. Actions
 serialize by environment and restore their previous work state before proceeding.
 
-The adapter updates the source and reads it back. If a new latest deployment
+For both deployment and rollback, the adapter first aligns the configured source
+with the intended digest and reads it back. Railway's native rollback restores a
+deployment but leaves that configured source unchanged. If a new latest deployment
 appears, the update cannot establish who created it. The command records
 UNATTRIBUTED_DEPLOYMENT, retains its lock, and requires read-only reconciliation
 instead of adopting that ID or issuing a duplicate deployment. Otherwise it

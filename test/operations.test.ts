@@ -133,13 +133,18 @@ it.each(['state drift', 'read failure'])('releases the lock after preflight %s w
   hosting.snapshot = snapshot;
   expect((await execute(request, hosting, directory, traffic)).outcome).toBe('verified');
 });
-it('retains an acknowledged rollback until read-only recovery verifies its saved configuration', async () => {
+it('aligns the configured image and retains rollback until read-only recovery verifies its saved configuration', async () => {
   const directory = await root();
   const baseline = await execute(request, host(), directory, traffic);
   const hosting = host();
   await hosting.updateImage(image);
   await hosting.deploy();
+  // Real Railway native rollback restores the deployed image but leaves the
+  // service source unchanged unless the operator explicitly aligns it.
+  await hosting.updateImage(image.replace('b'.repeat(64), 'c'.repeat(64)));
+  vi.mocked(hosting.updateImage).mockClear();
   const result = await execute({ ...request, operation: 'rollback', deploymentId, restoreRecord: baseline.recordPath }, hosting, directory, traffic);
+  expect(hosting.updateImage).toHaveBeenCalledWith(image);
   expect(result).toMatchObject({ outcome: 'unknown_outcome', reasonCodes: ['ROLLBACK_REQUIRES_RECONCILIATION'] });
   expect(result.recoveryInstruction).toContain('reconcile');
   const original = await readFile(result.recordPath, 'utf8');
@@ -160,6 +165,7 @@ it('blocks an ineligible rollback without making a mutation', async () => {
   const hosting = host();
   hosting.deployment = vi.fn(async () => ({ ...deployment, canRollback: false }));
   expect((await execute({ ...request, operation: 'rollback', deploymentId, restoreRecord: baseline.recordPath }, hosting, directory, traffic)).reasonCodes).toContain('ROLLBACK_UNAVAILABLE');
+  expect(hosting.updateImage).not.toHaveBeenCalled();
   expect(hosting.rollback).not.toHaveBeenCalled();
 });
 it('reconciles an accepted deployment after its response was lost without repeating mutation', async () => {
