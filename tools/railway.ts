@@ -24,7 +24,7 @@ export interface Hosting {
   deployment(id: string): Promise<Deployment>;
   updateImage(image: string): Promise<void>;
   deploy(): Promise<string>;
-  rollback(id: string): Promise<string>;
+  rollback(id: string): Promise<void>;
 }
 
 export class Railway {
@@ -98,6 +98,9 @@ export class Railway {
     return z.object({ serviceInstanceDeployV2: z.string().uuid() }).parse(await this.call('mutation($serviceId:String!,$environmentId:String!) { serviceInstanceDeployV2(serviceId:$serviceId,environmentId:$environmentId) }', { serviceId: this.target.serviceId, environmentId: this.target.environmentId }, true)).serviceInstanceDeployV2;
   }
   async rollback(id: string) {
-    return z.object({ deploymentRollback: z.object({ id: z.string().uuid() }) }).parse(await this.call('mutation($id:String!) { deploymentRollback(id:$id) { id } }', { id }, true)).deploymentRollback.id;
+    // Live schema returns Boolean, despite the docs' object-shaped example.
+    // Acknowledgment supplies no deployment identity; the operator reconciles.
+    const result = z.object({ deploymentRollback: z.boolean() }).parse(await this.call('mutation($id:String!) { deploymentRollback(id:$id) }', { id }, true));
+    if (!result.deploymentRollback) throw new LabError('ROLLBACK_UNCONFIRMED', 'Railway did not acknowledge rollback. Reconcile before attempting another mutation.', 'unknown_outcome');
   }
 }

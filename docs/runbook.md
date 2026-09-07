@@ -180,7 +180,17 @@ npm run lab -- rollback --target live --deployment "$LAB_PREVIOUS_DEPLOYMENT" --
 
 Keep the .sha256 file with its record. Rollback rejects a wrong-target, unverified,
 ineligible, or wrong-image baseline. It checks the earlier configuration fingerprint
-and verifies recovery with live requests. That fingerprint covers service
+and verifies recovery with live requests during reconciliation. The live Railway
+API returns a boolean acknowledgment, not a deployment ID. A successful rollback
+request therefore exits 2 with `ROLLBACK_REQUIRES_RECONCILIATION`, preserves an
+unknown outcome and its lock, and writes a `rollback-acknowledged` journal event.
+This is not verified recovery and must not trigger a mutation retry. Run `reconcile`
+with the returned attempt UUID, the same target, and the same work directory once
+Railway settles. The Actions rollback run also exits nonzero; start a separate
+reconcile run using its retained state. Reconciliation creates a new verified
+record only after provider identity, saved configuration, and live checks agree.
+
+That fingerprint covers service
 start/readiness/region/replica settings and LAB_ENVIRONMENT, PORT, and NODE_ENV;
 it is not a full infrastructure or secret snapshot. Build 1 has neither app
 secrets nor a database schema.

@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { Railway } from '../tools/railway.js';
 import captured from './fixtures/railway-staging-deployment.json' with { type: 'json' };
+import rollbackContract from './fixtures/railway-rollback-contract.json' with { type: 'json' };
 const target = { projectId: '11111111-1111-4111-8111-111111111111', serviceId: '22222222-2222-4222-8222-222222222222', environmentId: '33333333-3333-4333-8333-333333333333', url: 'https://example.up.railway.app' };
 it('rejects an HTTP-success GraphQL failure before treating credentials as usable', async () => {
   const transport = vi.fn(async () => Response.json({ errors: [{ message: 'Forbidden' }] })) as typeof fetch;
@@ -58,4 +59,23 @@ it('rejects a captured deployment moved to a different environment', async () =>
   const transport = vi.fn<typeof fetch>().mockResolvedValue(Response.json(drifted));
   await expect(new Railway('fixture-token', captured.target, transport)
     .deployment(drifted.data.deployment.id)).rejects.toThrow('this exact project');
+});
+
+it('uses the live Railway scalar rollback contract without inventing a deployment ID', async () => {
+  expect(rollbackContract.field.type.ofType).toEqual({ kind: 'SCALAR', name: 'Boolean' });
+  const transport = vi.fn<typeof fetch>(async (_url, init) => {
+    const { query } = JSON.parse(String(init?.body));
+    if (/deploymentRollback\(id:\$id\)\s*\{/.test(query)) return Response.json({ errors: [{ message: 'Boolean cannot have a selection set' }] }, { status: 400 });
+    return Response.json({ data: { deploymentRollback: true } });
+  });
+  await expect(new Railway('fixture-token', captured.target, transport)
+    .rollback(captured.deploymentResponse.data.deployment.id)).resolves.toBeUndefined();
+  expect(transport).toHaveBeenCalledOnce();
+});
+
+it('keeps a false rollback acknowledgment unresolved without retrying it', async () => {
+  const transport = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ data: { deploymentRollback: false } }));
+  await expect(new Railway('fixture-token', captured.target, transport)
+    .rollback(captured.deploymentResponse.data.deployment.id)).rejects.toMatchObject({ code: 'ROLLBACK_UNCONFIRMED', outcome: 'unknown_outcome' });
+  expect(transport).toHaveBeenCalledOnce();
 });

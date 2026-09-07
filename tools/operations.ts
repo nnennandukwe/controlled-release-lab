@@ -68,7 +68,9 @@ export async function execute(request: Operation, hosting: Hosting, root: string
         record.deploymentId = await hosting.deploy();
       } else {
         providerMutationAttempted = true;
-        record.deploymentId = await hosting.rollback(request.deploymentId!);
+        await hosting.rollback(request.deploymentId!);
+        await journal.append('rollback-acknowledged', { rollbackTarget: request.deploymentId, acknowledged: true });
+        throw new LabError('ROLLBACK_REQUIRES_RECONCILIATION', 'Railway acknowledged rollback without a deployment ID. Run reconcile with this attempt and the same work directory to verify the restored image and live behavior.', 'unknown_outcome');
       }
       await journal.append('accepted', { deploymentId: record.deploymentId });
     }

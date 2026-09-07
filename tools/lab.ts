@@ -14,7 +14,7 @@ Usage: npm run lab -- <doctor|deploy|observe|rollback|reconcile> --target <stagi
   doctor       Read provider access, source, and deployment configuration.
   deploy       Preview a digest deployment; add --apply to execute it.
   observe      Collect a bounded live sample and preserve the raw observations.
-  rollback     Preview recovery; requires --deployment and --restore-record.
+  rollback     Request recovery; requires --deployment and --restore-record; then reconcile.
   reconcile    Resolve an uncertain operation from its --attempt UUID, without mutation.
 
 Options:
@@ -42,6 +42,7 @@ Examples:
 
 Credentials: RAILWAY_PROJECT_TOKEN, scoped to the selected environment. Never pass it as an argument.
 Output: JSON on stdout, progress on stderr. Exit 0 verified/preview; 1 invalid/failed; 2 blocked/unknown.
+Railway rollback returns acknowledgment only: apply exits 2 and retains its lock until reconcile verifies recovery.
 `;
 
 export async function runCli(args: string[], environment: NodeJS.ProcessEnv = process.env, stdout: (text: string) => void = text => process.stdout.write(text), stderr: (text: string) => void = text => process.stderr.write(text)) {

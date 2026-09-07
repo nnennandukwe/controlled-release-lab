@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -21,7 +21,7 @@ function host() {
     assertScope: vi.fn(async () => {}), snapshot: vi.fn(async () => current), deployment: vi.fn(async () => deployment),
     updateImage: vi.fn(async updated => { current = { ...current, sourceImage: updated }; }),
     deploy: vi.fn(async () => { current = { ...current, active: [deployment], latestId: deploymentId }; return deploymentId; }),
-    rollback: vi.fn(async () => deploymentId),
+    rollback: vi.fn(async () => {}),
   };
   return hosting;
 }
@@ -54,8 +54,11 @@ it('records a new rollback change reference rather than borrowing the baseline r
   await hosting.updateImage(image);
   await hosting.deploy();
   const restored = await execute({ ...request, operation: 'rollback', targetName: 'live', deploymentId, restoreRecord: baseline.recordPath, changeReference: 'LAB-124' }, hosting, directory, liveTraffic);
-  expect(restored.outcome).toBe('verified');
+  expect(restored.outcome).toBe('unknown_outcome');
   expect((await loadRecord(restored.recordPath)).changeReference).toBe('LAB-124');
+  const reconciled = await execute({ ...request, operation: 'reconcile', targetName: 'live', attempt: restored.attemptId! }, hosting, directory, liveTraffic);
+  expect(reconciled.outcome).toBe('verified');
+  expect((await loadRecord(reconciled.recordPath)).changeReference).toBe('LAB-124');
 });
 it('rejects a mutable image without making a deployment mutation', async () => {
   const hosting = host();
@@ -130,15 +133,26 @@ it.each(['state drift', 'read failure'])('releases the lock after preflight %s w
   hosting.snapshot = snapshot;
   expect((await execute(request, hosting, directory, traffic)).outcome).toBe('verified');
 });
-it('restores an eligible earlier deployment and checks its saved configuration', async () => {
+it('retains an acknowledged rollback until read-only recovery verifies its saved configuration', async () => {
   const directory = await root();
   const baseline = await execute(request, host(), directory, traffic);
   const hosting = host();
   await hosting.updateImage(image);
   await hosting.deploy();
   const result = await execute({ ...request, operation: 'rollback', deploymentId, restoreRecord: baseline.recordPath }, hosting, directory, traffic);
-  expect(result.outcome).toBe('verified');
+  expect(result).toMatchObject({ outcome: 'unknown_outcome', reasonCodes: ['ROLLBACK_REQUIRES_RECONCILIATION'] });
+  expect(result.recoveryInstruction).toContain('reconcile');
+  const original = await readFile(result.recordPath, 'utf8');
+  expect((await loadRecord(result.recordPath)).deploymentId).toBeNull();
+  const events = await readdir(join(directory, 'attempts', result.attemptId!));
+  expect(events.some(name => name.endsWith('-rollback-acknowledged.json'))).toBe(true);
+  expect(events.some(name => name.endsWith('-accepted.json'))).toBe(false);
+  await expect(execute(request, hosting, directory, traffic)).rejects.toMatchObject({ code: 'OPERATION_LOCKED' });
+  const reconciled = await execute({ ...request, operation: 'reconcile', attempt: result.attemptId! }, hosting, directory, traffic);
+  expect(reconciled.outcome).toBe('verified');
+  expect(await readFile(result.recordPath, 'utf8')).toBe(original);
   expect(hosting.rollback).toHaveBeenCalledOnce();
+  expect((await execute(request, hosting, directory, traffic)).outcome).toBe('verified');
 });
 it('blocks an ineligible rollback without making a mutation', async () => {
   const directory = await root();
@@ -171,7 +185,7 @@ it.each(['deploy', 'rollback', 'reconcile'] as const)('rejects a stale configure
   if (operation === 'rollback') {
     await hosting.updateImage(image);
     await hosting.deploy();
-    hosting.rollback = vi.fn(async () => { await hosting.updateImage(wrongImage); return deploymentId; });
+    hosting.rollback = vi.fn(async () => { await hosting.updateImage(wrongImage); });
     actualRequest = { ...actualRequest, deploymentId, restoreRecord: baseline.recordPath };
   } else {
     hosting.deploy = vi.fn(async () => {
@@ -185,8 +199,12 @@ it.each(['deploy', 'rollback', 'reconcile'] as const)('rejects a stale configure
       actualRequest = { ...actualRequest, attempt: (await loadRecord(original.recordPath)).attemptId };
     }
   }
-  const result = await execute(actualRequest, hosting, directory, traffic);
+  let result = await execute(actualRequest, hosting, directory, traffic);
+  if (operation === 'rollback') {
+    expect(result.reasonCodes).toContain('ROLLBACK_REQUIRES_RECONCILIATION');
+    result = await execute({ ...request, operation: 'reconcile', attempt: result.attemptId! }, hosting, directory, traffic);
+  }
   expect(result.reasonCodes).toContain('CONFIGURED_IMAGE_MISMATCH');
-  expect(result.outcome).toBe(operation === 'reconcile' ? 'blocked' : 'unknown_outcome');
+  expect(result.outcome).toBe(operation === 'deploy' ? 'unknown_outcome' : 'blocked');
   await expect(execute(request, hosting, directory, traffic)).rejects.toThrow('Reconcile');
 });

@@ -1,0 +1,28 @@
+{
+  "capturedAt": "2026-09-07T00:08:57.723Z",
+  "source": "Read-only introspection of the real Railway GraphQL endpoint after the HTTP 400 rollback attempt",
+  "field": {
+    "name": "deploymentRollback",
+    "type": {
+      "kind": "NON_NULL",
+      "name": null,
+      "ofType": {
+        "kind": "SCALAR",
+        "name": "Boolean"
+      }
+    },
+    "args": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      }
+    ]
+  }
+}
