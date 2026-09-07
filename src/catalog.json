@@ -1,5 +1,5 @@
 [
-  { "id": "keyboard-compact", "name": "Compact Mechanical Keyboard", "description": "Quiet switches in a portable keyboard.", "category": "workspace", "priceCents": 8900 },
+  { "id": "keyboard-compact", "name": "Compact Mechanical Keyboard", "description": "Quiet switches and a compact footprint in a portable keyboard.", "category": "workspace", "priceCents": 8900 },
   { "id": "keyboard-full", "name": "Full Size Keyboard", "description": "A complete desk keyboard with number pad.", "category": "workspace", "priceCents": 6900 },
   { "id": "headphones-studio", "name": "Studio Headphones", "description": "Over-ear headphones for focused listening.", "category": "audio", "priceCents": 12900 },
   { "id": "headphones-travel", "name": "Travel Headphones", "description": "Foldable headphones with a compact case.", "category": "audio", "priceCents": 9900 },
