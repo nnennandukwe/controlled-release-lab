@@ -168,6 +168,23 @@ it('blocks an ineligible rollback without making a mutation', async () => {
   expect(hosting.updateImage).not.toHaveBeenCalled();
   expect(hosting.rollback).not.toHaveBeenCalled();
 });
+it('refuses native rollback when provider state changes after source readback', async () => {
+  const directory = await root();
+  const baseline = await execute(request, host(), directory, traffic);
+  const hosting = host();
+  await hosting.updateImage(image);
+  await hosting.deploy();
+  const stable = await hosting.snapshot();
+  const competingId = '77777777-7777-4777-8777-777777777777';
+  hosting.snapshot = vi.fn()
+    .mockResolvedValueOnce(stable).mockResolvedValueOnce(stable).mockResolvedValueOnce(stable)
+    .mockResolvedValue({ ...stable, latestId: competingId, active: [{ ...deployment, id: competingId }] });
+  const result = await execute({ ...request, operation: 'rollback', deploymentId, restoreRecord: baseline.recordPath }, hosting, directory, traffic);
+  expect(result).toMatchObject({ outcome: 'unknown_outcome', reasonCodes: ['ROLLBACK_STATE_CHANGED'] });
+  expect(hosting.rollback).not.toHaveBeenCalled();
+  expect((await loadRecord(result.recordPath)).deploymentId).toBeNull();
+  await expect(execute(request, hosting, directory, traffic)).rejects.toMatchObject({ code: 'OPERATION_LOCKED' });
+});
 it('reconciles an accepted deployment after its response was lost without repeating mutation', async () => {
   const hosting = host();
   const deploy = hosting.deploy;

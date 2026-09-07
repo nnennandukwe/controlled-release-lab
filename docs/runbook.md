@@ -101,6 +101,15 @@ Add --apply only for the authorized operation. Local operators must share one
 work directory. Do not mix local and GitHub mutations concurrently. Actions
 serialize by environment and restore their previous work state before proceeding.
 
+This lab requires one deployment writer per environment. Dashboard actions,
+other API clients, and image auto-updates must not mutate the service during an
+operation. Local locks and Actions concurrency serialize their own execution
+paths; they cannot lock Railway against a trusted account administrator. Railway
+rollback exposes no conditional version argument. The final pre-rollback read
+rejects observed drift with `ROLLBACK_STATE_CHANGED`, but cannot eliminate a
+change after that read and before the provider applies the mutation. This is a
+single-writer lab, not an atomic multi-controller release system.
+
 For both deployment and rollback, the adapter first aligns the configured source
 with the intended digest and reads it back. Railway's native rollback restores a
 deployment but leaves that configured source unchanged. If a new latest deployment

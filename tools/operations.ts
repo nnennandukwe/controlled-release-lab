@@ -69,6 +69,9 @@ export async function execute(request: Operation, hosting: Hosting, root: string
       if (request.operation === 'deploy') {
         record.deploymentId = await hosting.deploy();
       } else {
+        // Recheck after the durable source journal, immediately before the
+        // destructive call. This detects observed drift, not a provider CAS.
+        if (fingerprint(await hosting.snapshot()) !== fingerprint(configured)) throw new LabError('ROLLBACK_STATE_CHANGED', 'Provider state changed before rollback. Inspect and reconcile; no native rollback was sent.');
         await hosting.rollback(request.deploymentId!);
         await journal.append('rollback-acknowledged', { rollbackTarget: request.deploymentId, acknowledged: true });
         throw new LabError('ROLLBACK_REQUIRES_RECONCILIATION', 'Railway acknowledged rollback without a deployment ID. Run reconcile with this attempt and the same work directory to verify the restored image and live behavior.', 'unknown_outcome');
