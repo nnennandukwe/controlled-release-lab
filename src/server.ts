@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { search } from './search.js';
+import { applySearchTeachingFixture } from './search-teaching-fixture.js';
 import { loadBuildInfo } from './build-info.js';
 import { flagSettings, offlineFlags, syntheticContext, type FlagEvaluator } from './flags.js';
 
@@ -62,6 +63,7 @@ export async function createApplication(environment: NodeJS.ProcessEnv, flags?: 
       }
       try {
         const evaluation = await evaluator.evaluate(context);
+        await applySearchTeachingFixture(query, evaluation.value);
         json(200, { query, results: search(query, evaluation.value), ranking: evaluation.value ? 'ranked' : 'original', evaluation, requestId, ...identity });
       } catch { json(503, { error: { code: 'EVALUATION_UNAVAILABLE', message: 'Evaluation could not complete. Retry after service recovery.' }, requestId }); }
       return;
