@@ -94,7 +94,7 @@ export async function verifyExposureRelease(directory: string, allowExpired = fa
 }
 export function checkExposureEvidence(input: unknown, subject: FeatureSubject, baselineP95Ms: number, fresh = true, baselineQueryP95Ms?: QueryBaseline) {
   const evidence = exposureEvidenceSchema.parse(input), record = evidence.record;
-  if (record.outcome !== 'verified' || !record.finishedAt || !record.featureProof || evidence.context.policyDigest !== policyDigest || evidence.context.exposurePolicyDigest !== exposurePolicyDigest || evidence.context.rosterDigest !== rosterDigest
+  if (record.outcome !== 'verified' || !record.finishedAt || !record.featureProof || !record.featureProof.baselineQueryP95Ms || evidence.context.policyDigest !== policyDigest || evidence.context.exposurePolicyDigest !== exposurePolicyDigest || evidence.context.rosterDigest !== rosterDigest
     || evidence.context.requestDigest !== record.requestDigest || record.requestDigest !== sha256(serializeExposure(record.request)) || fingerprint(record.featureProof.subject) !== fingerprint(subject)
     || record.featureProof.baselineP95Ms !== baselineP95Ms || (baselineQueryP95Ms && fingerprint(record.featureProof.baselineQueryP95Ms) !== fingerprint(baselineQueryP95Ms))) throw new LabError('EXPOSURE_PROOF_REJECTED', 'Exposure evidence is incomplete or belongs to another request, policy or baseline.');
   if (fingerprint(exposureSubject(record.request)) !== fingerprint(subject) || record.featureProof.after.stage !== record.request.stage || !matchesDesired(record.featureProof.after.state, record.request.desired)) throw new LabError('EXPOSURE_PROOF_REJECTED', 'Observed flag state differs from the evidence request.');

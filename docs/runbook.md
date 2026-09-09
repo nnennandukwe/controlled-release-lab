@@ -430,13 +430,23 @@ at five seconds, and keep-alive at one second. These fixed source settings requi
 no runtime switches and remain above the declared operator workload. A 429 during
 acceptance is a failed sample, never permission to retry until green.
 
+Flag evaluation has a one-second deadline independent of the teaching delay.
+Disconnect or deadline ends the HTTP wait and restores admission. At most 16
+underlying SDK evaluations may remain outstanding; if they stall, new admitted
+requests return controlled 503 responses until evaluation recovers, rather than
+accumulating abandoned SDK work. Readiness remains a process check, not proof of
+healthy flag evaluation.
+
 Every sample retains actual value/index/reason, context, latency, response identity
 and result ordering. The operator requires zero functional/identity/evaluation
-errors and both aggregate and query/variation p95 no greater than
-max(500 ms, twice the off-baseline p95 for that query). The initial off deployment
-window uses the independent normal deployment probe's p95 to establish its
-bootstrap limits; every subsequent exposure uses recomputed per-query p95 from
-that authenticated off window. These baselines remain bound to the same image,
+errors. Exposure operations compare aggregate p95 with max(500 ms, twice aggregate
+off p95), and each query/variation p95 with max(500 ms, twice that query's off p95).
+Deployment observations,
+including initial off and staging rechecks, have no paired off proof and use an
+absolute 500 ms per-query bound; their `baselineQueryP95Ms` is explicitly null.
+Their raw query metrics record the actual measurements. Every exposure operation
+requires non-null baselines recomputed from its authenticated off window, never
+keyboard latency substituted for another query. These baselines remain bound to the same image,
 deployment, configuration and policy.
 These are tutorial thresholds, not production SLOs. Missing responses and missing
 cohorts hold; the operator never discards failures or resamples until green.

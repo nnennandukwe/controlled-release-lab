@@ -102,6 +102,7 @@ it('the public verifier authenticates completion only for healthy signed authori
     record.request.desired = desiredFlagState(record.request.before, '100');
     record.requestDigest = sha256(serializeExposure(record.request));record.featureProof = featureFixture(subject, '100');
     const healthy = { ...record, outcome: 'verified' as const, reasonCodes: [], recoveryInstruction: '' };
+    expect(() => createExposureEnvelope({ ...healthy, featureProof: { ...healthy.featureProof, baselineQueryP95Ms: null } }, operator)).toThrow('Exposure evidence is incomplete');
     const save = async () => writeFile(join(directory, 'exposure-evidence.json'), JSON.stringify(createExposureEnvelope(healthy, operator)));
     await save();await writeFile(join(directory, 'evidence.bundle.jsonl'), 'native verifier test seam');
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => String(input).includes('/compare/')

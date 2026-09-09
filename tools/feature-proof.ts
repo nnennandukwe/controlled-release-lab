@@ -7,7 +7,7 @@ import type { Hosting, Snapshot } from './railway.js';
 export const featureSubjectSchema = exposureSubjectSchema.extend({ image: imageSchema, configurationFingerprint: z.string().regex(/^[a-f0-9]{64}$/), target: targetSchema }).strict();
 export type FeatureSubject = z.infer<typeof featureSubjectSchema>;
 export const legacyFeatureProofSchema = z.object({ policyDigest: z.string(), rosterDigest: z.string(), subject: featureSubjectSchema, before: flagSnapshotSchema, after: flagSnapshotSchema, baselineP95Ms: z.number().finite().nonnegative(), measurement: z.unknown(), providerBefore: z.unknown(), providerAfter: z.unknown() }).strict();
-export const featureProofSchema = legacyFeatureProofSchema.extend({ schemaVersion: z.literal(2), baselineQueryP95Ms: queryBaselineSchema }).strict();
+export const featureProofSchema = legacyFeatureProofSchema.extend({ schemaVersion: z.literal(2), baselineQueryP95Ms: queryBaselineSchema.nullable() }).strict();
 export type FeatureProof = z.infer<typeof featureProofSchema>;
 export function assertServing(snapshot: Snapshot, subject: FeatureSubject) {
   if (snapshot.configurationFingerprint !== subject.configurationFingerprint || snapshot.sourceImage !== subject.image || snapshot.latestId !== subject.deploymentId || snapshot.active.length !== 1 || snapshot.active[0]?.id !== subject.deploymentId || snapshot.active[0]?.image !== subject.image || snapshot.active[0]?.status !== 'SUCCESS'
@@ -31,7 +31,7 @@ export function checkFeatureProof(input: unknown, subject: FeatureSubject, requi
   if (checked.measurement.outcome !== 'verified') throw new LabError('EXPOSURE_HOLD', `Exposure evidence is insufficient: ${checked.measurement.reasonCodes.join(', ')}.`);
   return checked;
 }
-export async function measureFeatureProof(hosting: Hosting, flags: FlagProvider, subject: FeatureSubject, baselineP95Ms: number, onSample: (sample: ExposureSample) => Promise<void>, transport: typeof fetch, baselineQueryP95Ms: QueryBaseline): Promise<FeatureProof> {
+export async function measureFeatureProof(hosting: Hosting, flags: FlagProvider, subject: FeatureSubject, baselineP95Ms: number, onSample: (sample: ExposureSample) => Promise<void>, transport: typeof fetch, baselineQueryP95Ms: QueryBaseline | null): Promise<FeatureProof> {
   const providerBefore = await hosting.snapshot(); assertServing(providerBefore, subject);
   const before = await flags.snapshot();
   const measurement = await observeExposure(subject.target.url, before, subject, baselineP95Ms, onSample, transport, baselineQueryP95Ms);

@@ -61,3 +61,38 @@ it('releases teaching-delay capacity promptly when clients disconnect', async ()
     abort.abort();await Promise.allSettled(requests);server.closeAllConnections();await new Promise<void>(resolve => server.close(() => resolve()));
   }
 });
+
+it.each([false, true])('releases HTTP admission on disconnect and handles abandoned SDK work, reject=%s', async rejectLater => {
+  let entered!: () => void, resume!: () => void, evaluations = 0;
+  const admitted = new Promise<void>(resolve => { entered = resolve; });
+  const pending = new Promise<void>((resolve, reject) => { resume = () => rejectLater ? reject(new Error('Late SDK failure')) : resolve(); });
+  const flags: FlagEvaluator = { ...offlineFlags, evaluate: async context => {
+    const index = ++evaluations;if (index === 16) entered();if (index <= 16) await pending;return offlineFlags.evaluate(context);
+  } };
+  const server = await createApplication({ LAB_ENVIRONMENT: 'local' }, flags);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();if (!address || typeof address === 'string') throw new Error('No listener');
+  const base = `http://127.0.0.1:${address.port}`, abort = new AbortController();
+  const requests = Array.from({ length: 16 }, () => fetch(`${base}/api/search?q=keyboard`, { signal: abort.signal }).catch(() => null));
+  try {
+    await admitted;abort.abort();await Promise.all(requests);await delay(50);
+    // HTTP admission is available, but do not start unlimited abandoned SDK work.
+    const unavailable = await fetch(`${base}/api/search?q=keyboard`);
+    expect(unavailable.status).toBe(503);expect(evaluations).toBe(16);
+    expect(await unavailable.json()).toMatchObject({ error: { code: 'EVALUATION_UNAVAILABLE' } });
+    resume();await delay(0);expect((await fetch(`${base}/api/search?q=keyboard`)).status).toBe(200);
+  } finally {
+    resume();abort.abort();await Promise.allSettled(requests);server.closeAllConnections();await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+it('bounds a stalled evaluation even while its client stays connected', async () => {
+  const server = await createApplication({ LAB_ENVIRONMENT: 'local' }, { ...offlineFlags, evaluate: () => new Promise(() => {}) });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();if (!address || typeof address === 'string') throw new Error('No listener');
+  try {
+    const started = performance.now();
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/search?q=keyboard`, { signal: AbortSignal.timeout(2000) });
+    expect(response.status).toBe(503);expect(performance.now() - started).toBeLessThan(2000);
+  } finally { server.closeAllConnections();await new Promise<void>(resolve => server.close(() => resolve())); }
+});

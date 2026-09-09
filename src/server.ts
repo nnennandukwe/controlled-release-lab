@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { search } from './search.js';
 import { applySearchTeachingFixture } from './search-teaching-fixture.js';
-import { createSearchAdmission } from './search-admission.js';
+import { createSearchAdmission, createSearchEvaluation } from './search-admission.js';
 import { loadBuildInfo } from './build-info.js';
 import { flagSettings, offlineFlags, syntheticContext, type FlagEvaluator } from './flags.js';
 
@@ -29,6 +29,7 @@ export async function createApplication(environment: NodeJS.ProcessEnv, flags?: 
     ['/styles.css', 'styles.css', 'text/css; charset=utf-8'],
   ].map(async ([path, file, type]) => [path!, { content: await readFile(new URL(file!, publicRoot)), type: type! }] as const)));
   const acquireSearch = createSearchAdmission();
+  const evaluateSearch = createSearchEvaluation(evaluator);
   const server = createServer({ headersTimeout: 5000, requestTimeout: 5000, connectionsCheckingInterval: 1000, keepAliveTimeout: 1000, maxHeaderSize: 8192 }, async (request, response) => {
     const requestId = randomUUID();
     response.setHeader('X-Request-ID', requestId);
@@ -70,10 +71,10 @@ export async function createApplication(environment: NodeJS.ProcessEnv, flags?: 
         return;
       }
       const disconnected = new AbortController();
-      const abort = () => disconnected.abort();
+      const abort = () => { disconnected.abort();release(); };
       response.once('close', abort);
       try {
-        const evaluation = await evaluator.evaluate(context);
+        const evaluation = await evaluateSearch(context, disconnected.signal);
         if (disconnected.signal.aborted) return;
         await applySearchTeachingFixture(query, evaluation.value, disconnected.signal);
         json(200, { query, results: search(query, evaluation.value), ranking: evaluation.value ? 'ranked' : 'original', evaluation, requestId, ...identity });

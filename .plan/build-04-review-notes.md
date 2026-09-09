@@ -21,3 +21,21 @@ G still requires a subsequent source revision after observed F failure and both
 recoveries. Preserve these application bounds in G; do not alter the observation
 policy or workload. No dependency, resource, account role or configuration switch
 was added by the remediation. The Build 3 Qodo label discrepancy stays separate.
+
+## Second review and additional remediation
+
+The next deep review reported `coverage.complete=false`. The CLI's 1% Git copy
+detection classified the new HTTP fixture test as copied from `.env.example` and
+excluded it. Inspection confirmed no real credential in that test. Its unchanged
+HTTP scenario now lives in the existing `test/server.test.ts`, which Git reports
+as modified rather than copied from a secret-like path. Full verification still
+passes; final review must include that test.
+
+| Finding | Assessment and disposition |
+|---|---|
+| `1852c1cd-fd9f-4d90-8992-6829b7c5d63a` and `cae5acd4-5783-4b86-904c-fc2be6d79ec5`, disconnected searches retain slots | Confirmed by 16 stalled evaluations followed by disconnect: another request incorrectly received 429. Evaluation now has a one-second deadline and request cancellation ends its HTTP wait. Admission releases idempotently on close and in finally. A separate cap retains at most 16 outstanding SDK calls, preventing cancellation from creating unlimited abandoned work; callers receive controlled 503 until those SDK calls recover. Tests cover disconnect, deadline, eventual recovery, and safe late rejection. |
+| `93792902-b4b1-4f50-991d-a140905e045c`, unrelated latency baselines | Initial deployment proofs copied the keyboard probe into every baseline field. Corrected to an explicit null paired baseline and an absolute 500 ms per-query guard for deployment observations. Their raw query metrics retain independently measured p95 values. Authorized exposure operations require non-null values derived from each actual off query, as their verification path already did; a bootstrap-only proof cannot become exposure completion evidence. Tests use distinct query latencies and reject a slow bootstrap query. |
+
+The second review marked the two original unbounded-admission findings resolved.
+Hosted recovery remains an acceptance gap and specification refs remain unresolved.
+Neither the incomplete review nor local HTTP checks establish hosted acceptance.

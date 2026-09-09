@@ -32,6 +32,9 @@ The public search handler admits at most 16 pending searches per process, with a
 429 and `Retry-After: 1`; no queue is retained. Disconnected clients cancel the
 teaching delay. These fixed application bounds leave the operator's two-concurrent,
 ten-per-second workload unchanged.
+Flag evaluation has a separate one-second deadline and a cap of 16 outstanding
+SDK calls. A stalled evaluator produces controlled 503 responses without retaining
+HTTP admission or starting unlimited abandoned evaluations.
 
 ## Run locally
 

@@ -45,7 +45,7 @@ function evaluationMatches(evaluation: z.infer<typeof evaluationSchema>, flag: F
 }
 
 /** Recompute eligibility from raw samples; serialized summary claims never authorize advancement. */
-export function assessExposure(samples: ExposureSample[], flag: FlagSnapshot, subject: ExposureSubject, elapsedMs: number, baselineP95Ms: number, baselineQueryP95Ms: Partial<QueryBaseline> = {}) {
+export function assessExposure(samples: ExposureSample[], flag: FlagSnapshot, subject: ExposureSubject, elapsedMs: number, baselineP95Ms: number, baselineQueryP95Ms: Partial<QueryBaseline> | null = {}) {
   const expected = exposureSequence(flag.stage), window = exposureWindow(flag.stage);
   const reasons = new Set<string>();
   const counts: Record<string, number> = {};
@@ -93,10 +93,13 @@ export function assessExposure(samples: ExposureSample[], flag: FlagSnapshot, su
     const distinct = new Set(members.map(sample => sample.contextKey)).size;
     const sorted = members.map(sample => sample.durationMs).sort((a, b) => a - b);
     const p95Ms = sorted.length ? sorted[Math.ceil(sorted.length * 0.95) - 1]! : null;
-    const baseline = baselineQueryP95Ms[query];
+    const baseline = baselineQueryP95Ms?.[query];
     const validBaseline = typeof baseline === 'number' && Number.isFinite(baseline) && baseline >= 0;
-    const latencyLimitMs = validBaseline ? Math.max(config.p95FloorMs, baseline * config.p95BaselineMultiplier) : null;
-    if (!validBaseline) reasons.add('MISSING_QUERY_BASELINE');
+    // A deployment observation has no paired off proof yet. Use the fixed
+    // absolute bound, and record no invented per-query baseline. Exposure
+    // operations must instead supply every actual query p95 from their off proof.
+    const latencyLimitMs = baselineQueryP95Ms === null ? config.p95FloorMs : validBaseline ? Math.max(config.p95FloorMs, baseline * config.p95BaselineMultiplier) : null;
+    if (baselineQueryP95Ms !== null && !validBaseline) reasons.add('MISSING_QUERY_BASELINE');
     if (distinct < config.minimumQueryPersonas) reasons.add('INSUFFICIENT_QUERY_COHORTS');
     if (p95Ms === null || latencyLimitMs !== null && p95Ms > latencyLimitMs) reasons.add('QUERY_LATENCY_HOLD');
     queryMetrics[key] = { query, variation, requests: members.length, distinct, p95Ms, baselineP95Ms: validBaseline ? baseline : null, latencyLimitMs };
@@ -123,7 +126,7 @@ async function probeExposure(url: string, index: number, request: ReturnType<typ
   } catch { return { ...failed, durationMs: performance.now() - started, error: signal.aborted ? 'TIMEOUT' : 'REQUEST_OR_RESPONSE_ERROR' }; }
 }
 
-export async function observeExposure(url: string, flag: FlagSnapshot, subject: ExposureSubject, baselineP95Ms: number, onSample: (sample: ExposureSample) => Promise<void>, transport: typeof fetch = fetch, baselineQueryP95Ms: Partial<QueryBaseline> = {}) {
+export async function observeExposure(url: string, flag: FlagSnapshot, subject: ExposureSubject, baselineP95Ms: number, onSample: (sample: ExposureSample) => Promise<void>, transport: typeof fetch = fetch, baselineQueryP95Ms: Partial<QueryBaseline> | null = {}) {
   const requests = exposureSequence(flag.stage), window = exposureWindow(flag.stage);
   const startedAt = new Date().toISOString(), start = performance.now(), deadline = start + config.deadlineSeconds * 1000;
   const samples: ExposureSample[] = [], pending = new Set<Promise<void>>();
@@ -144,7 +147,7 @@ export async function observeExposure(url: string, flag: FlagSnapshot, subject: 
   return { startedAt, finishedAt: new Date().toISOString(), elapsedMs, samples, ...assessExposure(samples, flag, subject, elapsedMs, baselineP95Ms, baselineQueryP95Ms) };
 }
 export type ExposureMeasurement = Awaited<ReturnType<typeof observeExposure>>;
-export function inspectExposureMeasurement(input: unknown, flag: FlagSnapshot, subject: ExposureSubject, baselineP95Ms: number, fresh = true, baselineQueryP95Ms: Partial<QueryBaseline> = {}) {
+export function inspectExposureMeasurement(input: unknown, flag: FlagSnapshot, subject: ExposureSubject, baselineP95Ms: number, fresh = true, baselineQueryP95Ms: Partial<QueryBaseline> | null = {}) {
   const measured = z.object({ startedAt: z.iso.datetime(), finishedAt: z.iso.datetime(), elapsedMs: z.number().finite(), samples: z.array(exposureSampleSchema).max(config.maxRequests) }).parse(input);
   const duration = Date.parse(measured.finishedAt) - Date.parse(measured.startedAt), now = Date.now();
   if (duration < exposureWindow(flag.stage).seconds * 1000 || Math.abs(duration - measured.elapsedMs) > 2000 || Date.parse(measured.finishedAt) > now + 30000 || (fresh && now - Date.parse(measured.finishedAt) > 1800000)) throw new LabError('EXPOSURE_WINDOW', 'Collect a fresh, complete observation window for this subject.');

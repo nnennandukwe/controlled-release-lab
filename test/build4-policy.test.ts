@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, it } from 'vitest';
-import { exposureSequence, assessExposure, type ExposureSample } from '../tools/exposure-observe.js';
+import { exposureSequence, assessExposure, originalQueryBaselines, type ExposureSample } from '../tools/exposure-observe.js';
 import { desiredFlagState, type ExposureStage } from '../tools/launchdarkly.js';
 import { checkFeatureProof, legacyFeatureProofSchema } from '../tools/feature-proof.js';
 import { workflowArguments } from '../tools/workflow.js';
@@ -37,6 +37,18 @@ it('inspects legacy feature evidence without accepting it under the new policy',
   const { schemaVersion, baselineQueryP95Ms, ...legacy } = featureFixture(subject, 'off');
   expect(legacyFeatureProofSchema.parse(legacy)).toEqual(legacy);
   expect(() => checkFeatureProof(legacy, subject, 'off')).toThrow();
+});
+
+it('uses an absolute bootstrap bound and derives later baselines from each actual off query', () => {
+  const proof = featureFixture(subject, 'off');
+  const samples = (proof.measurement as { samples: ExposureSample[] }).samples;
+  const timings = { keyboard: 100, compact: 200, workspace: 300 };
+  for (const sample of samples) sample.durationMs = timings[sample.query];
+  const baseline = checkFeatureProof({ ...proof, baselineQueryP95Ms: null }, subject, 'off');
+  expect(originalQueryBaselines(baseline.measurement)).toEqual(timings);
+  expect(baseline.measurement.queryMetrics['workspace/original']).toMatchObject({ baselineP95Ms: null, latencyLimitMs: 500 });
+  for (const sample of samples) if (sample.query === 'workspace') sample.durationMs = 550;
+  expect(() => checkFeatureProof({ ...proof, baselineP95Ms: 300, baselineQueryP95Ms: null }, subject, 'off')).toThrow('QUERY_LATENCY_HOLD');
 });
 
 it.each(['25', '100'] as const)('routes %s through the public workflow arguments', stage => {
