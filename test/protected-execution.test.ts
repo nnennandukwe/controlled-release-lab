@@ -40,7 +40,7 @@ async function fixture(forged = false) {
       expect(new URL(url).searchParams.get('audience')).toBe(`https://github.com/${policy.repository}/release/${requestDigest}`);
       return Response.json({ value: forged ? 'unsigned-identity' : jwt });
     }
-    if (url.includes('/compare/')) return Response.json({ status: 'ahead' });
+    if (url.includes('/compare/')) return Response.json({ status: 'ahead', merge_base_commit: { sha: sourceSha } });
     if (url.includes('deployment-branch-policies')) return Response.json({ total_count: 1, branch_policies: [{ name: 'main', type: 'branch' }] });
     if (url.includes('/environments/')) return Response.json({ can_admins_bypass: false, protection_rules: [{ type: 'required_reviewers', reviewers: [{ type: 'User', reviewer: { id: Number(policy.ownerId) } }] }], deployment_branch_policy: { protected_branches: false, custom_branch_policies: true } });
     if (url.endsWith('/branches/main')) return Response.json({ protected: true });

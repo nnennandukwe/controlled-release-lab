@@ -67,8 +67,10 @@ export async function assertProducer(producer: z.infer<typeof producerSchema>, w
     const proof = jobs.filter(job => job.name === 'staging-proof');
     if (proof.length !== 1 || proof[0]!.conclusion !== 'success' || proof[0]!.status !== 'completed') throw new LabError('PROVENANCE_REJECTED', 'The exact upstream staging proof job must finish successfully.');
   } else if (run.status !== 'completed' || run.conclusion !== 'success') throw new LabError('PROVENANCE_REJECTED', 'Producer run did not complete successfully.');
-  const comparison = z.object({ status: z.enum(['ahead', 'behind', 'identical', 'diverged']) }).parse(await github(`compare/${producer.sourceSha}...main`));
-  if (!['ahead', 'identical'].includes(comparison.status)) throw new LabError('PROVENANCE_REJECTED', 'Producer source is not in protected main history.');
+  const comparison = z.object({ merge_base_commit: z.object({ sha: sourceSchema }) }).parse(await github(`compare/${producer.sourceSha}...main`));
+  // With the producer as base and main as head, an ancestor is the merge base.
+  // Compare commits directly instead of interpreting ahead/behind labels.
+  if (comparison.merge_base_commit.sha !== producer.sourceSha) throw new LabError('PROVENANCE_REJECTED', 'Producer source is not in protected main history.');
 }
 
 const jobSchema = z.object({ name: z.string(), status: z.string(), conclusion: z.string().nullable(), check_run_url: z.string() });

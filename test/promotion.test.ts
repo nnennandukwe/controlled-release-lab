@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach } from 'vitest';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { stagingObservationRequest, serializedRequest, authorizeMutation, checkObservation, checkRequest, deploymentEvidenceSchema, policyDigest, releaseRequestSchema, verifyRelease, verifyRunToken, type ReleaseRequest } from '../tools/promotion.js';
+import { stagingObservationRequest, serializedRequest, assertProducer, authorizeMutation, checkObservation, checkRequest, deploymentEvidenceSchema, policyDigest, releaseRequestSchema, verifyRelease, verifyRunToken, type ReleaseRequest } from '../tools/promotion.js';
 import { verifyArtifact } from '../tools/attestation.js';
 import { sha256 } from '../tools/setup-verifier.js';
 
@@ -44,7 +44,7 @@ function evidence(targetName: 'staging' | 'live' = 'staging') {
     context: { operator: { ...operator, runId: '15' }, build, policyDigest, requestDigest: 'd'.repeat(64), authorization: 'protected-observation', audience: 'synthetic-catalog-baseline', notEvaluated: ['Feature cohorts'] } });
 }
 function githubFixture(url: string) {
-  if (url.includes('/compare/')) return { status: 'ahead' };
+  if (url.includes('/compare/')) return { status: 'ahead', merge_base_commit: { sha: url.includes(operatorSource) ? operatorSource : source } };
   if (url.includes('deployment-branch-policies')) return { total_count: 1, branch_policies: [{ name: 'main', type: 'branch' }] };
   if (url.endsWith('/branches/main')) return { protected: true };
   if (url.includes('/environments/')) return { can_admins_bypass: false, protection_rules: [{ type: 'required_reviewers', reviewers: [{ type: 'User', reviewer: { id: Number(policy.ownerId) } }] }], deployment_branch_policy: { protected_branches: false, custom_branch_policies: true } };
@@ -152,4 +152,10 @@ it.each(['change-reference', 'operator-run', 'issued-at'])('refuses fresh signed
   if (condition === 'issued-at') manifest.issuedAt = new Date(Date.parse(manifest.issuedAt) - 1000).toISOString();
   await writeFile(join(root, 'release-request.json'), JSON.stringify(manifest));
   await expect(verifyRelease(root)).rejects.toMatchObject({ code: 'STAGING_REQUEST_MISMATCH' });
+});
+it('accepts an older main ancestor and rejects a source outside main history by merge-base identity', async () => {
+  await fixture('staging');
+  await expect(assertProducer(build, 'image.yml')).resolves.toBeUndefined();
+  vi.stubGlobal('fetch', async (url: string) => Response.json(url.includes('/compare/') ? { status: 'diverged', merge_base_commit: { sha: 'f'.repeat(40) } } : githubFixture(url)));
+  await expect(assertProducer(build, 'image.yml')).rejects.toMatchObject({ code: 'PROVENANCE_REJECTED' });
 });
