@@ -1,0 +1,29 @@
+name: Queue hosted recovery test
+on:
+  workflow_run:
+    workflows: [Publish image]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+  actions: write
+jobs:
+  queue:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Never check out or execute producer artifacts in this privileged job.
+      # Operate lab authenticates the exact build before its protected mutation.
+      - name: Queue the real staging recovery test for the completed build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_RUN: ${{ github.event.workflow_run.id }}
+          BUILD_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          gh workflow run operate.yml --ref main \
+            -f operation=rehearse-recovery -f target=staging -f apply=true \
+            -f build_run="$BUILD_RUN" -f build_attempt="$BUILD_ATTEMPT" \
+            -f change_reference="RECOVERY-CI-$BUILD_RUN-$BUILD_ATTEMPT"
+          echo 'Recovery rehearsal queued in Operate lab (staging / rehearse-recovery). It requires staging approval. Queue success is not a recovery result; inspect the separate run and its lab-state/lab-proof artifacts.' >> "$GITHUB_STEP_SUMMARY"

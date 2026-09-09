@@ -4,5 +4,7 @@
 !tsconfig.json
 !src/**
 !tools/**
+!config/toolchain.json
+!config/release-policy.json
 !public/**
 !Dockerfile

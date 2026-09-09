@@ -21,8 +21,10 @@ const jobsSchema = z.object({ total_count: z.number(), jobs: z.array(z.object({
 
 function operationWasSkipped(value: unknown) {
   const result = jobsSchema.parse(value);
-  if (result.total_count !== result.jobs.length || result.jobs.length !== 1) return false;
-  const job = result.jobs[0]!;
+  if (result.total_count !== result.jobs.length) return false;
+  const matches = result.jobs.filter(job => job.name === 'operate');
+  if (matches.length !== 1) return false;
+  const job = matches[0]!;
   if (job.name !== 'operate' || job.status !== 'completed') return false;
   if (job.conclusion === 'skipped') return true;
   const operations = job.steps.filter(step => step.name === 'Execute the requested bounded operation');
@@ -39,7 +41,7 @@ export async function previousOperation(environment: NodeJS.ProcessEnv, transpor
   let attemptsInspected = 0;
   for (let page = 1; page <= 10; page++) {
     const runs = z.object({ workflow_runs: z.array(runSchema) }).parse(await get(`actions/workflows/operate.yml/runs?branch=main&per_page=100&page=${page}`)).workflow_runs;
-    const candidates = runs.filter(run => run.head_branch === 'main' && run.id < Number(config.GITHUB_RUN_ID) && ['deploy', 'rollback', 'reconcile'].some(operation => run.display_title === `${config.LAB_TARGET} / ${operation}`));
+    const candidates = runs.filter(run => run.head_branch === 'main' && run.id < Number(config.GITHUB_RUN_ID) && ['deploy', 'rollback', 'reconcile', 'rehearse-recovery'].some(operation => run.display_title === `${config.LAB_TARGET} / ${operation}`));
     for (const prior of candidates) {
       if (prior.status !== 'completed') throw new Error('The previous operation has not completed. Wait before starting another operation.');
       const artifacts = z.object({ artifacts: z.array(z.object({ name: z.string(), expired: z.boolean() })) }).parse(await get(`actions/runs/${prior.id}/artifacts?per_page=100`)).artifacts;
@@ -57,7 +59,7 @@ export async function previousOperation(environment: NodeJS.ProcessEnv, transpor
 }
 
 export function workflowArguments(environment: NodeJS.ProcessEnv): string[] {
-  const operation = z.enum(['doctor', 'deploy', 'observe', 'rollback', 'reconcile']).parse(environment.LAB_OPERATION);
+  const operation = z.enum(['doctor', 'deploy', 'observe', 'rollback', 'reconcile', 'rehearse-recovery']).parse(environment.LAB_OPERATION);
   const args = [operation, '--target', z.enum(['staging', 'live']).parse(environment.LAB_TARGET)];
   if (environment.LAB_CHANGE_REFERENCE) args.push('--change-reference', environment.LAB_CHANGE_REFERENCE);
   if (operation !== 'doctor' && environment.LAB_MAX_DURATION_SECONDS !== undefined) {
@@ -65,8 +67,12 @@ export function workflowArguments(environment: NodeJS.ProcessEnv): string[] {
     args.push('--max-duration-seconds', String(maximum));
   }
   if (environment.LAB_APPLY === 'true') args.push('--apply');
-  if (operation === 'deploy') args.push('--image', environment.LAB_IMAGE ?? '', '--source-sha', environment.LAB_SOURCE_SHA ?? '');
-  if (operation === 'rollback') args.push('--deployment', z.string().uuid().parse(environment.LAB_DEPLOYMENT), '--restore-record', `work/attempts/${z.string().uuid().parse(environment.LAB_RESTORE_ATTEMPT)}/record.json`);
+  if (environment.LAB_RELEASE_DIR && ['deploy', 'rollback', 'observe', 'rehearse-recovery'].includes(operation)) {
+    args.push('--release-dir', environment.LAB_RELEASE_DIR);
+  } else {
+    if (operation === 'deploy') args.push('--image', environment.LAB_IMAGE ?? '', '--source-sha', environment.LAB_SOURCE_SHA ?? '');
+    if (operation === 'rollback') args.push('--deployment', z.string().uuid().parse(environment.LAB_DEPLOYMENT), '--restore-record', `work/attempts/${z.string().uuid().parse(environment.LAB_RESTORE_ATTEMPT)}/record.json`);
+  }
   if (operation === 'reconcile') args.push('--attempt', z.string().uuid().parse(environment.LAB_ATTEMPT));
   return args;
 }
@@ -80,7 +86,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       await appendFile(output, `previous_run=${previous.runId}\nprevious_artifact=${previous.artifactName}\n`);
     } else if (process.argv[2] === 'run') {
       await initializeState('work');
-      process.exitCode = await runCli(workflowArguments(process.env));
+      const output: string[] = [];
+      process.exitCode = await runCli(workflowArguments(process.env), process.env, text => { output.push(text); process.stdout.write(text); });
+      await writeFile('work/last-result.json', output.join(''), { mode: 0o600 });
     } else throw new Error('Use prepare or run.');
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : 'Workflow failed'}\n`);

@@ -5,51 +5,80 @@ on:
     inputs:
       operation:
         type: choice
-        options: [doctor, deploy, observe, rollback, reconcile]
+        options: [doctor, deploy, observe, rollback, reconcile, rehearse-recovery]
         required: true
       target:
         type: choice
         options: [staging, live]
         required: true
       apply:
-        description: Execute deployment or rollback after reviewing the subject
+        description: Apply the resolved deployment, rollback or staging recovery rehearsal
         type: boolean
         default: false
-      max_duration_seconds:
-        description: Total traffic deadline in seconds (60-300; minimum window is 60)
-        type: number
-        default: 300
-        required: true
       change_reference:
-        description: Change identifier or URL (required for live apply)
+        description: Change identifier (required for publication, observation or mutation)
         type: string
+      build_run:
+        description: Exact successful Publish image run ID (deploy/observe/rehearse-recovery)
+        type: string
+      build_attempt:
+        type: string
+        default: '1'
       image:
-        description: Digest-qualified GHCR image (deploy)
+        description: Optional expected digest-qualified image; must match the build
         type: string
       source_sha:
-        description: Source SHA from the image build record (deploy)
+        description: Optional expected source SHA; must match the build
         type: string
+      evidence_run:
+        description: Earlier successful live observation run (rollback)
+        type: string
+      evidence_attempt:
+        type: string
+        default: '1'
       deployment:
-        description: Earlier Railway deployment UUID (rollback)
+        description: Optional expected earlier deployment UUID (rollback)
         type: string
       restore_attempt:
-        description: Earlier verified attempt UUID in the retained state (rollback)
+        description: Optional expected earlier operation UUID (rollback)
         type: string
       attempt:
-        description: Original uncertain attempt UUID (reconcile)
+        description: Original uncertain operation UUID (reconcile)
         type: string
+      max_duration_seconds:
+        description: Observation deadline; protected apply always uses 90 seconds
+        type: number
+        default: 90
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: lab-operation-${{ inputs.target }}
+  group: controlled-release-provider-writer
   cancel-in-progress: false
+env:
+  GH_TOKEN: ${{ github.token }}
+  LAB_OPERATION: ${{ inputs.operation }}
+  LAB_TARGET: ${{ inputs.target }}
+  LAB_APPLY: ${{ inputs.apply }}
+  LAB_CHANGE_REFERENCE: ${{ inputs.change_reference }}
+  LAB_BUILD_RUN: ${{ inputs.build_run }}
+  LAB_BUILD_ATTEMPT: ${{ inputs.build_attempt }}
+  LAB_IMAGE: ${{ inputs.image }}
+  LAB_SOURCE_SHA: ${{ inputs.source_sha }}
+  LAB_EVIDENCE_RUN: ${{ inputs.evidence_run }}
+  LAB_EVIDENCE_ATTEMPT: ${{ inputs.evidence_attempt }}
+  LAB_DEPLOYMENT: ${{ inputs.deployment }}
+  LAB_RESTORE_ATTEMPT: ${{ inputs.restore_attempt }}
+  LAB_ATTEMPT: ${{ inputs.attempt }}
+  LAB_MAX_DURATION_SECONDS: ${{ inputs.max_duration_seconds }}
 jobs:
-  operate:
+  resolve:
     if: github.ref == 'refs/heads/main'
-    environment: ${{ inputs.target }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
+    outputs:
+      has_request: ${{ steps.request.outputs.has_request }}
+      needs_staging: ${{ steps.request.outputs.needs_staging }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,13 +88,126 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: npm run setup:verifier
+      - id: request
+        run: node --import tsx tools/release-workflow.ts resolve
+      - if: steps.request.outputs.has_request == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-base-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-base/
+          if-no-files-found: error
+          retention-days: 90
+  staging-proof:
+    needs: resolve
+    if: needs.resolve.outputs.needs_staging == 'true'
+    environment: staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      attestations: write
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run setup:verifier
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-base-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-base
+      - name: Observe current staging subject
+        run: node --import tsx tools/release-workflow.ts proof
+        env:
+          RAILWAY_PROJECT_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}
+      - id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: artifacts/staging-proof/deployment-evidence.json
+      - run: cp "$BUNDLE" artifacts/staging-proof/evidence.bundle.jsonl
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/staging-proof/
+          if-no-files-found: error
+          retention-days: 90
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-observations-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/staging-proof/
+          if-no-files-found: ignore
+          retention-days: 90
+  finalize:
+    needs: [resolve, staging-proof]
+    if: always() && needs.resolve.result == 'success' && needs.resolve.outputs.has_request == 'true' && (needs.staging-proof.result == 'success' || needs.staging-proof.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run setup:verifier
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-base-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-base
+      - if: needs.resolve.outputs.needs_staging == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: staging-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/staging-proof
+      - run: node --import tsx tools/release-workflow.ts finalize
+        env:
+          LAB_NEEDS_STAGING: ${{ needs.resolve.outputs.needs_staging }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-request-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-final/
+          if-no-files-found: error
+          retention-days: 90
+  operate:
+    needs: [resolve, finalize]
+    if: always() && needs.resolve.result == 'success' && ((needs.resolve.outputs.has_request == 'true' && needs.finalize.result == 'success') || (needs.resolve.outputs.has_request == 'false' && needs.finalize.result == 'skipped'))
+    environment: ${{ inputs.target }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      attestations: write
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run setup:verifier
       - id: prepare
         name: Verify protection and locate previous operator state
         run: node --import tsx tools/workflow.ts prepare
         env:
-          GH_TOKEN: ${{ github.token }}
           LAB_GITHUB_ENVIRONMENT: ${{ inputs.target }}
-          LAB_TARGET: ${{ inputs.target }}
       - id: restore
         if: steps.prepare.outputs.previous_run != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -74,27 +216,45 @@ jobs:
           run-id: ${{ steps.prepare.outputs.previous_run }}
           github-token: ${{ github.token }}
           path: work
+      - if: needs.resolve.outputs.has_request == 'true'
+        name: Clear only the derived current request
+        run: node --input-type=module -e 'import fs from "node:fs/promises"; await fs.rm("work/release/current",{recursive:true,force:true});'
+      - if: needs.resolve.outputs.has_request == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-request-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/release/current
       - id: operation
         name: Execute the requested bounded operation
         run: node --import tsx tools/workflow.ts run
         env:
           RAILWAY_PROJECT_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}
           LAB_CONFIG_JSON: ${{ vars.LAB_CONFIG_JSON }}
-          LAB_OPERATION: ${{ inputs.operation }}
-          LAB_TARGET: ${{ inputs.target }}
-          LAB_APPLY: ${{ inputs.apply }}
-          LAB_MAX_DURATION_SECONDS: ${{ inputs.max_duration_seconds }}
-          LAB_CHANGE_REFERENCE: ${{ inputs.change_reference }}
-          LAB_IMAGE: ${{ inputs.image }}
-          LAB_SOURCE_SHA: ${{ inputs.source_sha }}
-          LAB_DEPLOYMENT: ${{ inputs.deployment }}
-          LAB_RESTORE_ATTEMPT: ${{ inputs.restore_attempt }}
-          LAB_ATTEMPT: ${{ inputs.attempt }}
+          LAB_RELEASE_DIR: ${{ needs.resolve.outputs.has_request == 'true' && 'work/release/current' || '' }}
       - name: Preserve evidence and unresolved operation locks
         if: always() && steps.operation.outcome != 'skipped'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: lab-state-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: work/
+          if-no-files-found: error
+          retention-days: 90
+      - id: seal
+        if: steps.operation.outcome == 'success' && inputs.operation != 'doctor'
+        run: node --import tsx tools/release-workflow.ts seal
+      - id: attest
+        if: steps.seal.outputs.sign == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: artifacts/observation/deployment-evidence.json
+      - if: steps.seal.outputs.sign == 'true'
+        run: cp "$BUNDLE" artifacts/observation/evidence.bundle.jsonl
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+      - if: steps.seal.outputs.sign == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lab-proof-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/observation/
           if-no-files-found: error
           retention-days: 90
