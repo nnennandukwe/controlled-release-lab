@@ -336,7 +336,11 @@ flag is off. Retain its signed staging `lab-proof` run as the off baseline. Then
 | `reconcile-exposure` | Original uncertain exposure `attempt` UUID; no apply |
 
 A successful **staging / rehearse-recovery** run automatically queues the
-staging internal exposure with `rehearse_response_loss=true` in **Operate lab**.
+staging internal exposure with `rehearse_response_loss=true` in **Operate lab**
+from its dependent dispatch job, after signed proof has been uploaded. The
+dispatch does not depend on a second `workflow_run` event, which a workflow-token
+producer may suppress. The child receives the parent's validated change reference
+unchanged, keeping the approved audit trail continuous.
 Review and approve that queued request; do not dispatch a duplicate. For a fresh
 manual rehearsal, the same inputs are available in the workflow form. The resolved request names `purpose=response-loss-rehearsal`, which must
 match the command before any effect. This uses the same protected staging

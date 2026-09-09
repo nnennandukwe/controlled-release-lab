@@ -209,6 +209,8 @@ jobs:
     environment: ${{ inputs.target }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      signed: ${{ steps.seal.outputs.sign }}
     permissions:
       contents: read
       actions: read
@@ -282,3 +284,29 @@ jobs:
           path: artifacts/observation/
           if-no-files-found: error
           retention-days: 90
+  queue-flag-recovery:
+    needs: operate
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && needs.operate.result == 'success' && needs.operate.outputs.signed == 'true' && inputs.operation == 'rehearse-recovery' && inputs.target == 'staging' && inputs.apply
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      # Explicit dispatch works for workflow-token producers. No provider secrets,
+      # producer checkout, or artifact execution are present in this job.
+      - name: Queue real staging flag recovery from the signed off baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CHANGE_REFERENCE: ${{ inputs.change_reference }}
+          EVIDENCE_RUN: ${{ github.run_id }}
+          EVIDENCE_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          # Parent resolution validated this reference before its protected approval.
+          test -n "$CHANGE_REFERENCE"
+          gh workflow run operate.yml --ref main \
+            -f operation=expose -f target=staging -f stage=internal -f apply=true \
+            -f rehearse_response_loss=true \
+            -f evidence_run="$EVIDENCE_RUN" -f evidence_attempt="$EVIDENCE_ATTEMPT" \
+            -f change_reference="$CHANGE_REFERENCE"
+          echo 'Flag recovery rehearsal queued in Operate lab (staging / expose). Its immutable request binds the audit reference and requires separate staging approval. Only the signed cohort result proves recovery; queueing is not authorization or acceptance.' >> "$GITHUB_STEP_SUMMARY"

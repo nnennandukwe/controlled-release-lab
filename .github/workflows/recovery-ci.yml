@@ -1,7 +1,7 @@
 name: Queue hosted recovery test
 on:
   workflow_run:
-    workflows: [Publish image, Operate lab]
+    workflows: [Publish image]
     types: [completed]
     branches: [main]
 permissions:
@@ -9,7 +9,7 @@ permissions:
   actions: write
 jobs:
   queue:
-    if: github.event.workflow_run.name == 'Publish image' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch'
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -27,23 +27,3 @@ jobs:
             -f build_run="$BUILD_RUN" -f build_attempt="$BUILD_ATTEMPT" \
             -f change_reference="RECOVERY-CI-$BUILD_RUN-$BUILD_ATTEMPT"
           echo 'Recovery rehearsal queued in Operate lab (staging / rehearse-recovery). It requires staging approval. Queue success is not a recovery result; inspect the separate run and its lab-state/lab-proof artifacts.' >> "$GITHUB_STEP_SUMMARY"
-  queue-flag-recovery:
-    if: github.event.workflow_run.name == 'Operate lab' && github.event.workflow_run.display_title == 'staging / rehearse-recovery' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      # No producer checkout or artifact execution in this privileged dispatcher.
-      # The protected operator authenticates the signed baseline before PATCH.
-      - name: Queue real staging flag recovery from the signed off baseline
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          EVIDENCE_RUN: ${{ github.event.workflow_run.id }}
-          EVIDENCE_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-        run: |
-          gh workflow run operate.yml --ref main \
-            -f operation=expose -f target=staging -f stage=internal -f apply=true \
-            -f rehearse_response_loss=true \
-            -f evidence_run="$EVIDENCE_RUN" -f evidence_attempt="$EVIDENCE_ATTEMPT" \
-            -f change_reference="FLAG-RECOVERY-CI-$EVIDENCE_RUN-$EVIDENCE_ATTEMPT"
-          echo 'Flag recovery rehearsal queued in Operate lab (staging / expose). Review the response-loss-rehearsal request at staging approval. Only the separate signed cohort result proves recovery; a queued run does not.' >> "$GITHUB_STEP_SUMMARY"
