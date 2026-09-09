@@ -6,26 +6,30 @@ import { z } from 'zod';
 import { LabError, targetSchema } from './evidence.js';
 import { execute, type Operation } from './operations.js';
 import { Railway } from './railway.js';
+import { checkRequest, releaseRequestSchema, verifyRelease } from './promotion.js';
+import { fingerprint } from './evidence.js';
 
-export const help = `Controlled Release Lab - hosted baseline and recovery
+export const help = `Controlled Release Lab - authenticated promotion and recovery
 
-Usage: npm run lab -- <doctor|deploy|observe|rollback|reconcile> --target <staging|live> [options]
+Usage: npm run lab -- <doctor|verify|deploy|observe|rollback|reconcile> --target <staging|live> [options]
 
   doctor       Read provider access, source, and deployment configuration.
+  verify       Verify signed release evidence; does not authorize mutation.
   deploy       Preview a digest deployment; add --apply to execute it.
   observe      Collect a bounded live sample and preserve the raw observations.
-  rollback     Request recovery; requires --deployment and --restore-record; then reconcile.
+  rollback     Preview earlier recovery, or apply an authenticated --release-dir; then reconcile.
   reconcile    Resolve an uncertain operation from its --attempt UUID, without mutation.
 
 Options:
   --config PATH             Target map (default config/lab.json; LAB_CONFIG_JSON also supported)
+  --release-dir PATH        Immutable request and signed attachments; required for protected apply
   --image IMAGE@sha256:...   Immutable GHCR image for deploy
   --source-sha SHA           Expected 40-character source SHA for deploy
   --deployment UUID          Earlier Railway deployment for rollback
   --restore-record PATH      Verified earlier record.json and its .sha256 file
   --attempt UUID             Original uncertain attempt under the work directory
-  --apply                    Execute deploy/rollback (provider credentials still required)
-  --change-reference REF     Change identifier or URL; required for live --apply
+  --apply                    Execute deploy/rollback inside the protected GitHub workflow
+  --change-reference REF     Change identifier; protected apply uses the resolved request value
   --duration-seconds N       Minimum observation window, 0.1-300 seconds (default 60)
   --max-duration-seconds N   Total traffic deadline, 0.1-300 seconds (default 300)
   --rate N                   Launch-rate ceiling, 1-10 requests/second (default 2)
@@ -35,12 +39,14 @@ Options:
 
 Examples:
   npm run lab -- doctor --target staging
+  npm run lab -- verify --target live --release-dir work/release/current
   npm run lab -- observe --target staging --duration-seconds 60 --rate 2 --max-requests 120
   npm run lab -- deploy --target staging --image 'ghcr.io/owner/lab@sha256:replace-with-64-hex-digest' --source-sha 'replace-with-40-hex-sha'
   npm run lab -- rollback --target live --deployment 'replace-with-deployment-uuid' --restore-record 'work/attempts/replace-with-attempt-uuid/record.json'
   npm run lab -- reconcile --target live --attempt 'replace-with-attempt-uuid'
 
 Credentials: RAILWAY_PROJECT_TOKEN, scoped to the selected environment. Never pass it as an argument.
+Local deploy/rollback are previews. Apply requires authenticated GitHub OIDC and protected environment approval.
 Output: JSON on stdout, progress on stderr. Exit 0 verified/preview; 1 invalid/failed; 2 blocked/unknown.
 Railway rollback returns acknowledgment only: apply exits 2 and retains its lock until reconcile verifies recovery.
 `;
@@ -49,12 +55,22 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
   let heartbeat: NodeJS.Timeout | undefined;
   try {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, strict: true, options: {
-      help: { type: 'boolean' }, target: { type: 'string' }, config: { type: 'string' }, image: { type: 'string' }, 'source-sha': { type: 'string' }, deployment: { type: 'string' }, 'restore-record': { type: 'string' }, attempt: { type: 'string' }, apply: { type: 'boolean' }, 'change-reference': { type: 'string' }, 'duration-seconds': { type: 'string' }, 'max-duration-seconds': { type: 'string' }, rate: { type: 'string' }, 'max-requests': { type: 'string' }, 'work-dir': { type: 'string' },
+      help: { type: 'boolean' }, target: { type: 'string' }, config: { type: 'string' }, image: { type: 'string' }, 'source-sha': { type: 'string' }, deployment: { type: 'string' }, 'restore-record': { type: 'string' }, attempt: { type: 'string' }, apply: { type: 'boolean' }, 'release-dir': { type: 'string' }, 'change-reference': { type: 'string' }, 'duration-seconds': { type: 'string' }, 'max-duration-seconds': { type: 'string' }, rate: { type: 'string' }, 'max-requests': { type: 'string' }, 'work-dir': { type: 'string' },
     } });
     if (values.help) { stdout(help); return 0; }
     if (positionals.length !== 1) throw new LabError('COMMAND_REQUIRED', 'Choose one command. Run npm run lab -- --help.', 'failed');
-    const operation = z.enum(['doctor', 'deploy', 'observe', 'rollback', 'reconcile']).parse(positionals[0]);
+    const operation = z.enum(['doctor', 'verify', 'deploy', 'observe', 'rollback', 'reconcile']).parse(positionals[0]);
     const targetName = z.enum(['staging', 'live']).parse(values.target);
+    if (operation === 'verify') {
+      if (values.apply) throw new LabError('VERIFY_IS_READ_ONLY', 'Verify cannot apply changes. Dispatch the protected Operate lab workflow.');
+      if (Object.keys(values).some(name => !['target', 'release-dir'].includes(name))) throw new LabError('VERIFY_IS_READ_ONLY', 'Verify accepts only --target and --release-dir.');
+      stderr(`verify: authenticating ${targetName} evidence; this does not authorize mutation\n`);
+      heartbeat = setInterval(() => stderr('verify: waiting for bounded provenance checks...\n'), 10000);
+      const verified = await verifyRelease(z.string().min(1).parse(values['release-dir']));
+      if (verified.request.targetName !== targetName) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'The request belongs to another target.');
+      stdout(`${JSON.stringify({ outcome: 'evidence_verified', authorized: false, requestDigest: verified.requestDigest, image: verified.request.image, target: targetName })}\n`);
+      return 0;
+    }
     const raw = values.config ? await readFile(values.config, 'utf8') : environment.LAB_CONFIG_JSON ?? await readFile('config/lab.json', 'utf8');
     const map = z.object({ staging: targetSchema.optional(), live: targetSchema.optional() }).strict().parse(JSON.parse(raw));
     if (map.staging && map.live && map.staging.environmentId === map.live.environmentId) throw new LabError('ENVIRONMENT_COLLISION', 'Staging and live must use separate Railway environments.');
@@ -68,6 +84,21 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       return 0;
     }
     const request: Operation = { operation, targetName, target, apply: values.apply ?? false };
+    if (values['release-dir'] !== undefined) request.releaseDir = values['release-dir'];
+    if (request.releaseDir && operation === 'observe') {
+      const { request: candidate } = await verifyRelease(request.releaseDir);
+      if (candidate.operation !== 'observe' || candidate.targetName !== targetName || fingerprint(candidate.target) !== fingerprint(target)) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'Observation request belongs to another operation or target.');
+      if (values.image || values['source-sha'] || (values['change-reference'] && values['change-reference'] !== candidate.changeReference)) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'Use the immutable observation request without conflicting arguments.');
+      request.image = candidate.image; request.sourceSha = candidate.sourceSha; request.changeReference = candidate.changeReference;
+    }
+    if (request.releaseDir && !request.apply && ['deploy', 'rollback'].includes(operation)) {
+      const candidate = releaseRequestSchema.parse(JSON.parse(await readFile(resolve(request.releaseDir, 'release-request.json'), 'utf8')));
+      checkRequest(candidate);
+      if (candidate.operation !== operation || candidate.targetName !== targetName || fingerprint(candidate.target) !== fingerprint(target)) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'Preview request belongs to another operation or target.');
+      if (values.image || values['source-sha'] || values.deployment || values['restore-record']) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'Use a release directory or explicit preview arguments, not both.');
+      request.image = candidate.image; request.sourceSha = candidate.sourceSha;
+      if (operation === 'rollback') { request.deploymentId = candidate.rollbackDeploymentId!; request.restoreRecord = resolve(request.releaseDir, 'restore-record.json'); }
+    }
     if (values['change-reference'] !== undefined) request.changeReference = values['change-reference'];
     if (values.image !== undefined) request.image = values.image;
     if (values['source-sha'] !== undefined) request.sourceSha = values['source-sha'];

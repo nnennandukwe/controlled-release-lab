@@ -13,9 +13,9 @@ an operator investigate failures and verify deployment or application recovery.
 This is for engineers practicing delivery with a small hosted demo. The catalog
 and traffic are synthetic. Build 1's hosted baseline and application recovery
 were exercised on Railway; see the [rehearsal and evidence](docs/hosted-rehearsal.md)
-and [live catalog](https://catalog-live.up.railway.app). Attestation enforcement, LaunchDarkly
-exposure, the seeded regression, and completed feature release belong to Builds
-2–4. Local checks alone do not complete the release exercise.
+and [live catalog](https://catalog-live.up.railway.app). Build 2 adds signed provenance and protected promotion; its hosted acceptance
+remains a separate exercise. LaunchDarkly exposure, the seeded regression, and
+completed feature release belong to Builds 3–4. Local checks alone do not complete the release exercise.
 
 ## Run locally
 
@@ -32,6 +32,7 @@ and full-size keyboards appear. Stop with Ctrl+C. No cloud credentials are neede
 Local builds report `sourceSha: "local"`.
 
 ```bash
+npm run setup:verifier
 npm run typecheck
 npm test
 npm run build
@@ -39,7 +40,9 @@ npm start
 ```
 
 `build` writes compiled output and metadata to `dist/`; `start` serves it.
-`npm run verify` runs typing, tests, compilation, and the Docker smoke test.
+`npm run verify` installs/checks the pinned attestation verifier, then runs typing,
+tests, compilation, and the Docker smoke test. Tests include an authentic signed
+fixture and require GitHub/Sigstore network access.
 
 ## Operate the hosted lab
 
@@ -56,9 +59,9 @@ npm run lab -- observe --target staging --duration-seconds 60 --rate 2 --max-req
 Hosted commands require a target and its environment-scoped
 `RAILWAY_PROJECT_TOKEN`. Keep that credential in the operator's secret store,
 outside the application and coding-agent environment. Deployment and rollback
-preview by default; `--apply` performs the operation. Live application also
-requires `--change-reference` (a change identifier or review URL) for the audit
-record. The reference does not replace release authorization.
+preview by default. Apply requires an immutable release request, signed evidence,
+and authenticated OIDC identity inside the protected GitHub workflow. A local
+`--apply` flag or change reference alone cannot authorize deployment.
 
 Observations preserve the requested sample count by waiting for concurrency
 capacity. `--duration-seconds` is the minimum window; `--max-duration-seconds`
@@ -76,7 +79,8 @@ node --import tsx tools/lab.ts doctor --target staging
 | `work/attempts/<uuid>/*-*.json` | Preserved intent, provider observations, and requests |
 | `work/attempts/<uuid>/record.json` and `.sha256` | Final record and checksum |
 | `work/locks/*.lock` | Environment ownership retained after an uncertain mutation |
-| GitHub `build-record-*` artifact | Published digest and declared source/build identity |
+| GitHub `build-record-*` artifact | Published digest, producer identity, and signed image provenance |
+| GitHub `lab-proof-*` artifact | Signed deployment observation bound to the exact image and environment |
 | GitHub `lab-state-*` artifact | Preserved operator evidence and unresolved locks |
 
 Exit `0` means verified or preview, `1` invalid/failed, and `2` blocked/unknown.
@@ -96,15 +100,15 @@ or feature-release completion.
   operations. This build implements the application recovery path.
 - Retain earlier images, configuration, provider deployments, and evidence.
   Expired rollback targets or missing evidence require operator intervention.
-- GHCR images are public for the authorized rehearsal. The source repo remains
-  private. Protected GitHub deployment access still requires supported environment
-  approval settings; the rehearsal used scoped local operator credentials.
+- Build 2 uses the approved public GitHub source/public GHCR route. Configure and
+  verify environment protection before deployment. Build 1 historical receipts
+  remain unsigned and cannot authorize Build 2 promotion.
 - There is no runtime integration with ThreadLoop, GAAP, or `workshop-platform`.
 
 ## Plans and requirements
 
 - [Build 1 plan](.plan/build-01-hosted-baseline-recovery.md)
-- [Build sequence](.plan/README.md) — Builds 2–5 will be planned separately here
+- [Build sequence](.plan/README.md) — each build has a separate plan and acceptance boundary
 - [Approved tutorial brief](docs/tutorial-brief.md)
 - [Platform decisions](docs/platform-plan.md)
 - [Operator runbook](docs/runbook.md)

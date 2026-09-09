@@ -115,7 +115,7 @@ Out of scope:
 | `tools/operations.ts` | Call the mandatory gate from `execute` before mutations; retain existing drift checks, journals, locks and native-rollback reconciliation. |
 | `tools/evidence.ts` | Preserve v1 operation-record readers; add durable decision/link events without rewriting archived records or pretending checksums authenticate them. |
 | `tools/lab.ts` | Add `verify` and `--release-dir`; reject ambiguous apply inputs and ordinary local apply without protected-run authorization. |
-| `tools/workflow.ts` | Resolve requests and evidence by exact run/attempt/artifact identity; adapt previous-operation restoration to the new job graph. |
+| `tools/release-workflow.ts` (new), `tools/workflow.ts` | Resolve requests and evidence by exact run/attempt/artifact identity; adapt previous-operation restoration to the new job graph. |
 | `tools/workflow-guard.ts` | Verify actual selected-main branch policy, reviewer identity, bypass configuration, and active target; reject generic nonempty protection settings. |
 | `.github/workflows/image.yml` | Build/test once, push, attest digest, verify emitted provenance, preserve signed build record and change reference. |
 | `.github/workflows/operate.yml` | Resolve request, refresh staging evidence for live deploy, approve target job, reverify and execute; sign eligible observation and retain all operation state. |

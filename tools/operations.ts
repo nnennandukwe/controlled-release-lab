@@ -3,13 +3,17 @@ import { z } from 'zod';
 import type { Hosting, Snapshot } from './railway.js';
 import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, loadAttempt, loadRecord, releaseReconciledLock, targetSchema, type EvidenceRecord, type Target } from './evidence.js';
 import { observe, observationOptionsSchema } from './observe.js';
-export type Operation = { operation: 'deploy' | 'rollback' | 'observe' | 'reconcile'; targetName: 'staging' | 'live'; target: Target; changeReference?: string; image?: string; sourceSha?: string; deploymentId?: string; restoreRecord?: string; attempt?: string; apply?: boolean; durationSeconds?: number; maxDurationSeconds?: number; rate?: number; maxRequests?: number };
+import { authorizeMutation } from './promotion.js';
+export type Operation = { operation: 'deploy' | 'rollback' | 'observe' | 'reconcile'; targetName: 'staging' | 'live'; target: Target; releaseDir?: string; changeReference?: string; image?: string; sourceSha?: string; deploymentId?: string; restoreRecord?: string; attempt?: string; apply?: boolean; durationSeconds?: number; maxDurationSeconds?: number; rate?: number; maxRequests?: number };
 export async function execute(request: Operation, hosting: Hosting, root: string, transport: typeof fetch = fetch) {
   targetSchema.parse(request.target);
   const mutating = request.operation === 'deploy' || request.operation === 'rollback';
+  const permit = mutating && request.apply ? await authorizeMutation(request) : undefined;
+  if (permit) request = permit.request;
   const changeReference = request.changeReference === undefined ? null : changeReferenceSchema.parse(request.changeReference);
   if (mutating && request.apply && request.targetName === 'live' && !changeReference) throw new LabError('CHANGE_REFERENCE_REQUIRED', 'Supply a change reference with --change-reference before applying a live deployment or rollback.');
   if (request.operation === 'deploy') { imageSchema.parse(request.image); z.string().regex(/^[a-f0-9]{40}$/).parse(request.sourceSha); }
+  if (request.operation === 'observe' && (request.image !== undefined || request.sourceSha !== undefined)) { imageSchema.parse(request.image); z.string().regex(/^[a-f0-9]{40}$/).parse(request.sourceSha); }
   if (request.operation === 'rollback') z.string().uuid().parse(request.deploymentId);
   const options = observationOptionsSchema.parse({ durationSeconds: request.durationSeconds, maxDurationSeconds: request.maxDurationSeconds, rate: request.rate, maxRequests: request.maxRequests });
   let prior: EvidenceRecord | undefined;
@@ -36,15 +40,17 @@ export async function execute(request: Operation, hosting: Hosting, root: string
   const record: EvidenceRecord = {
     schemaVersion: 1, attemptId: journal.attemptId, operation: request.operation, targetName: request.targetName, target: request.target,
     changeReference: request.operation === 'reconcile' ? prior?.changeReference ?? null : changeReference,
-    requestedImage: request.operation === 'deploy' ? request.image! : prior?.requestedImage ?? null, requestedSourceSha: request.operation === 'deploy' ? request.sourceSha! : prior?.requestedSourceSha ?? null,
+    requestedImage: ['deploy', 'observe'].includes(request.operation) ? request.image ?? null : prior?.requestedImage ?? null, requestedSourceSha: ['deploy', 'observe'].includes(request.operation) ? request.sourceSha ?? null : prior?.requestedSourceSha ?? null,
     rollbackTarget: request.deploymentId ?? prior?.rollbackTarget ?? null, deploymentId: request.operation === 'reconcile' ? prior?.deploymentId ?? null : null,
     configurationFingerprint: prior?.configurationFingerprint ?? null, startedAt: new Date().toISOString(), finishedAt: null,
     outcome: 'unknown_outcome', reasonCodes: [], recoveryInstruction: '', observations: [],
   };
   try {
     await journal.initialize();
+    if (permit) await permit.saveEvidence(`${journal.directory}/release`);
     const before = await hosting.snapshot();
     record.observations.push({ phase: 'before', snapshot: before });
+    if (permit && before.configurationFingerprint !== permit.expectedConfiguration) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'Current provider configuration differs from the approved request.');
     if (before.active.length > 1 || (before.latestId && before.active.length && !before.active.some(item => item.id === before.latestId))) throw new LabError('UNSTABLE_DEPLOYMENT', 'Wait for the active deployment to settle before operating.');
     if (!record.configurationFingerprint) record.configurationFingerprint = before.configurationFingerprint;
     if (request.operation === 'rollback') {
@@ -53,11 +59,13 @@ export async function execute(request: Operation, hosting: Hosting, root: string
       if (target.image !== record.requestedImage) throw new LabError('ROLLBACK_IMAGE_MISMATCH', 'Rollback target metadata does not match the saved image.');
     }
     await journal.append('intent', record);
+    if (permit) await journal.append('authorization', permit.decision);
     if (mutating) {
       const fresh = await hosting.snapshot();
       if (fingerprint(fresh) !== fingerprint(before)) throw new LabError('STATE_CHANGED', 'Provider state changed after preflight. Inspect it before creating a new attempt.');
       // Native rollback restores a deployment, but Railway retains the service's
       // configured source. Align it with the saved image for both mutation paths.
+      await permit!.assertCurrent();
       providerMutationAttempted = true;
       await hosting.updateImage(record.requestedImage!);
       const configured = await hosting.snapshot();
@@ -67,10 +75,12 @@ export async function execute(request: Operation, hosting: Hosting, root: string
       // Preserve the uncertain effect instead of adopting or retriggering it.
       if (configured.latestId !== before.latestId) throw new LabError('UNATTRIBUTED_DEPLOYMENT', 'A deployment appeared during the image update. Reconcile its observed state without attributing it to this request or triggering another deployment.');
       if (request.operation === 'deploy') {
+        await permit!.assertCurrent();
         record.deploymentId = await hosting.deploy();
       } else {
         // Recheck after the durable source journal, immediately before the
         // destructive call. This detects observed drift, not a provider CAS.
+        await permit!.assertCurrent();
         const rollbackState = await hosting.snapshot();
         if (fingerprint(rollbackState) !== fingerprint(configured)) {
           record.observations.push({ phase: 'rollback-drift', snapshot: rollbackState });

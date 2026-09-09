@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": "24.20.0" },
+  "engines": {
+    "node": "24.20.0"
+  },
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "node dist/src/main.js",
@@ -11,12 +13,16 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:container": "tsx tools/container-test.ts",
-    "verify": "npm run typecheck && npm test && npm run build && npm run test:container",
-    "lab": "tsx tools/lab.ts"
+    "verify": "npm run setup:verifier && npm run typecheck && npm test && npm run build && npm run test:container",
+    "lab": "tsx tools/lab.ts",
+    "setup:verifier": "tsx tools/setup-verifier.ts"
   },
-  "dependencies": { "zod": "4.5.4" },
+  "dependencies": {
+    "zod": "4.5.4"
+  },
   "devDependencies": {
     "@types/node": "24.13.3",
+    "jose": "6.2.12",
     "tsx": "4.23.13",
     "typescript": "7.0.2",
     "vitest": "5.0.0"

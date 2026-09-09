@@ -73,3 +73,16 @@ it('retains a state artifact even for the initial preview with no operation jour
     expect(JSON.parse(await readFile(join(root, 'state-format.json'), 'utf8'))).toEqual({ schemaVersion: 1 });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+it('recognizes the operation step within a multi-job workflow without skipping uncertainty', async () => {
+  const history = jobs('skipped');
+  history.total_count = 2;
+  history.jobs.unshift({ name: 'resolve', status: 'completed', conclusion: 'success', steps: [] });
+  const transport = vi.fn().mockResolvedValueOnce(Response.json({ workflow_runs: [priorRun(99)] }))
+    .mockResolvedValueOnce(Response.json({ artifacts: [] })).mockResolvedValueOnce(Response.json(history));
+  expect(await previousOperation(env, transport)).toEqual({ runId: '', artifactName: '' });
+});
+it('passes the immutable release directory instead of conflicting legacy apply fields', () => {
+  expect(workflowArguments({ LAB_OPERATION: 'deploy', LAB_TARGET: 'live', LAB_APPLY: 'true', LAB_RELEASE_DIR: 'work/release/current', LAB_IMAGE: 'unused' }))
+    .toEqual(['deploy', '--target', 'live', '--apply', '--release-dir', 'work/release/current']);
+});

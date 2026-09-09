@@ -11,3 +11,8 @@ it.each([[], ['deploy'], ['doctor', '--target', 'production'], ['deploy', '--unk
   expect(await runCli(args, {}, text => output.push(text))).toBe(1);
   expect(JSON.parse(output.join('')).recoveryInstruction).toContain('--help');
 });
+it.each([['verify', '--target', 'live', '--release-dir', 'unused', '--apply'], ['verify', '--target', 'live', '--release-dir', 'unused', '--image', 'ignored']].map(args => ({ args })))('rejects ambiguous verification arguments before any network access', async ({ args }) => {
+  const output: string[] = [];
+  expect(await runCli(args, {}, text => output.push(text))).toBe(2);
+  expect(JSON.parse(output.join('')).reasonCodes).toEqual(['VERIFY_IS_READ_ONLY']);
+});

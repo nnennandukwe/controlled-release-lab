@@ -6,6 +6,10 @@ import { execute, type Operation } from '../tools/operations.js';
 import { LabError, loadRecord } from '../tools/evidence.js';
 import type { Hosting, Snapshot, Deployment } from '../tools/railway.js';
 
+// These tests isolate the existing provider transaction and recovery contract.
+// promotion.test.ts exercises the real mandatory authorization gate.
+vi.mock('../tools/promotion.js', () => ({ authorizeMutation: async (request: Operation) => ({ request, expectedConfiguration: 'config-a', decision: { fixture: 'authorized provider transaction' }, saveEvidence: async () => {}, assertCurrent: async () => {} }) }));
+
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.map(root => rm(root, { recursive: true, force: true }))); roots.length = 0; });
 async function root() { const path = await mkdtemp(join(tmpdir(), 'release-operations-')); roots.push(path); return path; }
@@ -236,4 +240,18 @@ it.each(['deploy', 'rollback', 'reconcile'] as const)('rejects a stale configure
   expect(result.reasonCodes).toContain('CONFIGURED_IMAGE_MISMATCH');
   expect(result.outcome).toBe(operation === 'deploy' ? 'unknown_outcome' : 'blocked');
   await expect(execute(request, hosting, directory, traffic)).rejects.toThrow('Reconcile');
+});
+it('binds an explicit observation to the expected image and source before signing', async () => {
+  const hosting = host();
+  await hosting.updateImage(image); await hosting.deploy();
+  const result = await execute({ ...request, operation: 'observe', apply: false }, hosting, await root(), traffic);
+  expect(result.outcome).toBe('verified');
+  expect(await loadRecord(result.recordPath)).toMatchObject({ requestedImage: image, requestedSourceSha: sourceSha });
+});
+it('refuses signed-observation preparation when live source differs from its expected source', async () => {
+  const hosting = host();
+  await hosting.updateImage(image); await hosting.deploy();
+  const result = await execute({ ...request, operation: 'observe', sourceSha: 'f'.repeat(40), apply: false }, hosting, await root(), traffic);
+  expect(result.outcome).toBe('blocked');
+  expect(result.reasonCodes).toContain('LIVE_IDENTITY_MISMATCH');
 });
