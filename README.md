@@ -13,8 +13,9 @@ an operator investigate failures and verify deployment or application recovery.
 This is for engineers practicing delivery with a small hosted demo. The catalog
 and traffic are synthetic. Build 1's hosted baseline and application recovery
 were exercised on Railway; see the [rehearsal and evidence](docs/hosted-rehearsal.md)
-and [live catalog](https://catalog-live.up.railway.app). Build 2 adds signed provenance and protected promotion; its hosted acceptance
-remains a separate exercise. LaunchDarkly exposure, the seeded regression, and
+and [live catalog](https://catalog-live.up.railway.app). Build 2
+[passed signed C-to-D promotion and native recovery](docs/build-02-closeout.md);
+its final CI-only credential handoff remains open. LaunchDarkly exposure, the seeded regression, and
 completed feature release belong to Builds 3–4. Local checks alone do not complete the release exercise.
 
 ## Run locally
