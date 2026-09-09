@@ -1,10 +1,9 @@
 # Build 2 implementation and hosted acceptance
 
-Observed September 9, 2026 UTC. Implementation is merged and the protected
-C-to-D-to-C hosted acceptance passed. Final credential handoff remains open:
-replace the locally accessible Railway project tokens with fresh CI-only tokens,
-verify them in protected jobs, then revoke the old tokens. Build 3 is planned;
-its implementation has not started.
+Observed September 9, 2026 UTC; credential closeout verified at 18:22 UTC.
+Build 2 is complete: implementation is merged, the protected C-to-D-to-C hosted
+acceptance passed, and the final CI-only credential handoff is verified. Build 3
+is planned; its implementation has not started.
 
 ## Merged implementation and review
 
@@ -111,7 +110,7 @@ Two earlier failures are retained:
   instant for issuance/expiry and preserves strict expiration. Cancelling that
   waiting job also produced the real unassigned-runner contract fixture.
 
-## Protection, credentials and remaining handoff
+## Protection and completed credential handoff
 
 Public-source readiness checked all 276 reachable blobs at publication, including
 known credential patterns and the two existing scoped Railway tokens. No match
@@ -130,18 +129,28 @@ GitHub OIDC identity. The desktop owner still retains setup/administrator author
 this is enforcement of the ordinary release path, not a sandbox against an owner
 rewriting trusted code or using separate administrative access.
 
-**Open handoff:** the existing Railway tokens are also still in the owner's local
-Keychain. Creating fresh CI-only replacements through Railway CLI OAuth returns
-`Not Authorized`; token creation requires the signed-in dashboard. The Mac was
-locked when that step was attempted. No new token was created and no old token was
-revoked. Existing deployments and CI access remain available.
+Fresh project/environment-scoped tokens were created through the signed-in Railway
+dashboard after CLI OAuth token creation returned `Not Authorized`. Each token's
+scope was checked, then its value was passed in memory to `gh secret set` through
+stdin for the corresponding protected environment's `RAILWAY_PROJECT_TOKEN`.
+No replacement token was printed, written to a file or stored in local Keychain.
+The temporary local handoff server was stopped and removed.
 
-Once dashboard access is available, create one fresh token per existing target,
-transfer each directly to its protected GitHub environment secret without writing
-or printing its value, run protected `doctor` for both targets, and only then revoke
-the two older locally accessible tokens. Confirm removal through provider metadata.
-Finish this credential handoff before declaring Build 2 fully closed or implementing
-Build 3. Do not buy a tier or broaden account permissions to bypass it.
+Both fresh protected `doctor` runs used trusted main
+`0492006538dd3df02eea1f152d4a6fd3a8ded611`, after secret installation:
+
+| Target | Replacement token name | Protected doctor, attempt 1 | Result |
+|---|---|---|---|
+| staging | `controlled-release-lab-ci-staging-build2` | [34388243329](https://github.com/nnennandukwe/controlled-release-lab/actions/runs/34388243329) | Verified scope, configuration and unchanged D deployment `47392c4d-5332-4b24-96b7-b70dd9258e06`. |
+| live | `controlled-release-lab-ci-live-build2` | [34388316957](https://github.com/nnennandukwe/controlled-release-lab/actions/runs/34388316957) | Verified scope, configuration and unchanged recovered C deployment `2725c00c-9222-4022-bed7-c89c7eb3048e`. |
+
+These are read-only credential/provider checks, not new deployment or recovery
+rehearsals. Only after both passed were the two older `controlled-release-lab-local-*`
+tokens revoked through the dashboard. Provider metadata confirmed that only the
+two replacements remain; separate requests using each old token returned
+`Project Token not found`. The two revoked local Keychain entries were then removed.
+Main and environment protection settings were read back and remained in force.
+The credential handoff is complete without a new tier or broader account permissions.
 
 The dedicated project's usage was read after refreshing CLI authentication; the
 raw current-period measurements are archived without converting undocumented units

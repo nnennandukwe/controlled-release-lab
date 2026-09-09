@@ -8,7 +8,7 @@ and integrity; the policy still decides whether its evidence is sufficient.
 The [Build 1 rehearsal](hosted-rehearsal.md) remains a historical record of the
 local A → B → A exercise. Its unsigned images and receipts are not eligible for
 Build 2 promotion. The [Build 2 closeout](build-02-closeout.md) records the passed
-hosted acceptance and the remaining CI-only credential handoff.
+hosted acceptance and completed CI-only credential handoff.
 
 ## Prerequisites and trust configuration
 
@@ -261,8 +261,8 @@ exercise. Full repaired feature release and completion remain later milestones.
 
 Build 2 hosted acceptance requires a protected CI baseline C, candidate D promoted
 through staging to live, native rollback to C, and separately verified recovery.
-The [recorded rehearsal](build-02-closeout.md) passed this sequence; its credential
-handoff is still open. Preserve failed attempts as well as successful signed records. Local tests, merged
+The [recorded rehearsal](build-02-closeout.md) passed this sequence and its credential
+handoff is complete. Preserve failed attempts as well as successful signed records. Local tests, merged
 code, public images, and green CI alone do not establish that outcome.
 
 After rehearsal, inspect usage. Stop/delete only the dedicated lab's resources with
