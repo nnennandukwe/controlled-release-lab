@@ -32,8 +32,10 @@ review-label discrepancy, not a claim that Qodo marked the finding closed.
 
 Both images are public, built once in the protected publisher, tested before
 push, identified by registry digest, and accompanied by native GitHub attestations.
-Their application behavior is the same original catalog search. D includes the
-reviewed operator fixes and different embedded source/build identity; it is a
+Their application behavior is the same original catalog search. D was built from
+the source revision containing the operator fixes and has different embedded
+source/build identity. The runtime image contains the application, not the
+operator tools. D is a
 deliberate distinct-image promotion fixture, not a ranking-feature release.
 
 | Subject | Publisher | Application source |
