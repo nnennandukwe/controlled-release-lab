@@ -335,8 +335,10 @@ flag is off. Retain its signed staging `lab-proof` run as the off baseline. Then
 | `observe-exposure` | Off deployment baseline; measures current state without PATCH |
 | `reconcile-exposure` | Original uncertain exposure `attempt` UUID; no apply |
 
-For the staging internal exposure, set `rehearse_response_loss=true` in **Operate
-lab**. The resolved request names `purpose=response-loss-rehearsal`, which must
+A successful **staging / rehearse-recovery** run automatically queues the
+staging internal exposure with `rehearse_response_loss=true` in **Operate lab**.
+Review and approve that queued request; do not dispatch a duplicate. For a fresh
+manual rehearsal, the same inputs are available in the workflow form. The resolved request names `purpose=response-loss-rehearsal`, which must
 match the command before any effect. This uses the same protected staging
 approval and Writer scope. The rehearsal sends one real conditional flag update,
 discards the successful response as a labeled teaching fixture, verifies the

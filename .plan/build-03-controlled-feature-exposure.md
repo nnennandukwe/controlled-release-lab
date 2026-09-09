@@ -481,7 +481,9 @@ Primary references checked during planning:
 PR #8 finding `3948d823-c3a4-4625-8571-0b0f3b83aec3` identified that local REST
 seams alone cannot demonstrate LaunchDarkly response-loss recovery. The protected
 staging internal exposure therefore supports `rehearse_response_loss=true`, bound
-to an explicit request purpose. It submits one real conditional update, discards
+to an explicit request purpose. The existing recovery pipeline automatically
+queues it after successful staging deployment recovery, retaining the protected
+staging approval. It submits one real conditional update, discards
 the successful response as a teaching fixture, and runs the ordinary read-only
 reconciliation path. Acceptance must retain the unknown original, released lock,
 unchanged original bytes, one update call, and signed real cohort observations.
