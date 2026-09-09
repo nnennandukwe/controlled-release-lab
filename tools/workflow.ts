@@ -16,6 +16,7 @@ export async function initializeState(root: string) {
 const runSchema = z.object({ id: z.number().int().positive(), run_attempt: z.number().int().positive(), display_title: z.string(), head_branch: z.string().nullable(), status: z.string() });
 const jobsSchema = z.object({ total_count: z.number(), jobs: z.array(z.object({
   name: z.string(), status: z.string(), conclusion: z.string().nullable(),
+  runner_id: z.number().int().nonnegative().nullable().optional(), runner_name: z.string().nullable().optional(),
   steps: z.array(z.object({ name: z.string(), status: z.string(), conclusion: z.string().nullable() })),
 })) });
 
@@ -27,6 +28,9 @@ function operationWasSkipped(value: unknown) {
   const job = matches[0]!;
   if (job.name !== 'operate' || job.status !== 'completed') return false;
   if (job.conclusion === 'skipped') return true;
+  // GitHub reports an approval-wait cancellation with no allocated runner or steps.
+  // Missing runner fields or any evidence of execution must retain the block.
+  if (job.conclusion === 'cancelled' && job.runner_id === 0 && job.runner_name === '' && job.steps.length === 0) return true;
   const operations = job.steps.filter(step => step.name === 'Execute the requested bounded operation');
   return operations.length === 1 && operations[0]!.status === 'completed' && operations[0]!.conclusion === 'skipped';
 }

@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { checkedVerifier, sha256 } from './setup-verifier.js';
 import { changeReferenceSchema, loadRecord, LabError } from './evidence.js';
-import { policy, policyDigest, producerSchema, releaseRequestSchema, deploymentEvidenceSchema, verifyRelease, github, assertProducer, createEnvelope, stagingObservationRequest } from './promotion.js';
+import { policy, policyDigest, requestValidity, producerSchema, releaseRequestSchema, deploymentEvidenceSchema, verifyRelease, github, assertProducer, createEnvelope, stagingObservationRequest } from './promotion.js';
 import { execute } from './operations.js';
 import { Railway } from './railway.js';
 import { requireProtectedEnvironment } from './workflow-guard.js';
@@ -86,7 +86,7 @@ export async function resolveRelease(environment: NodeJS.ProcessEnv = process.en
   await copyFile('artifacts/build/image.bundle.jsonl', join(base, 'image.bundle.jsonl'));
   const request = await writeRequest(base, { schemaVersion: 1, purpose: operation === 'rehearse-recovery' ? 'recovery-rehearsal' : 'release', operation: operation === 'rehearse-recovery' ? 'deploy' : operation, targetName, target: policy.targets[targetName], image: buildRecord.image, sourceSha: build.sourceSha,
     build, operator, policyDigest, configurationFingerprint: policy.configurationFingerprints[targetName], changeReference,
-    issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + policy.maxEvidenceAgeSeconds * 1000).toISOString(),
+    ...requestValidity(),
     attachments: await attachments(base, names), rollbackDeploymentId: restore?.record.deploymentId ?? null });
   await output('has_request', 'true');
   await output('needs_staging', String(operation === 'deploy' && targetName === 'live' && environment.LAB_APPLY === 'true'));
@@ -131,7 +131,7 @@ export async function sealObservation() {
     // Reconciliation observes a previous effect; it does not borrow its expired
     // authorization. Authenticate the image again under a new observation request.
     request = releaseRequestSchema.parse({ ...request, purpose: 'release', operation: 'observe', operator: currentOperator(), rollbackDeploymentId: null,
-      issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + policy.maxEvidenceAgeSeconds * 1000).toISOString(),
+      ...requestValidity(),
       attachments: request.attachments.filter(attachment => attachment.name === 'image.bundle.jsonl') });
     const directory = 'artifacts/reconcile-request';
     await mkdir(directory, { recursive: true });

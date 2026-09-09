@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach } from 'vitest';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { stagingObservationRequest, serializedRequest, assertProducer, authorizeMutation, checkObservation, checkRequest, deploymentEvidenceSchema, policyDigest, releaseRequestSchema, verifyRelease, verifyRunToken, type ReleaseRequest } from '../tools/promotion.js';
+import { requestValidity, stagingObservationRequest, serializedRequest, assertProducer, authorizeMutation, checkObservation, checkRequest, deploymentEvidenceSchema, policyDigest, releaseRequestSchema, verifyRelease, verifyRunToken, type ReleaseRequest } from '../tools/promotion.js';
 import { verifyArtifact } from '../tools/attestation.js';
 import { sha256 } from '../tools/setup-verifier.js';
 
@@ -163,4 +163,18 @@ it('accepts an older main ancestor and rejects a source outside main history by 
 it('rejects using a rehearsal purpose for a live deployment or observation', () => {
   expect(() => checkRequest({ ...request('live'), purpose: 'recovery-rehearsal' })).toThrow('only staging');
   expect(() => checkRequest({ ...request('staging'), operation: 'observe', purpose: 'recovery-rehearsal' })).toThrow('only staging');
+});
+
+it('creates a policy-valid request even when successive wall-clock reads cross a millisecond', () => {
+  const now = Date.parse('2026-09-09T07:21:11.527Z');
+  vi.useFakeTimers({ now });
+  // The rejected hosted request read issuedAt at .527 and expiry at .528.
+  let ticks = 1;
+  vi.spyOn(Date, 'now').mockImplementation(() => now + ticks++);
+  try {
+    const value = { ...request('staging'), ...requestValidity() };
+    expect(() => checkRequest(value, now + 1)).not.toThrow();
+    expect(() => checkRequest(value, Date.parse(value.expiresAt) - 1)).not.toThrow();
+    expect(() => checkRequest(value, Date.parse(value.expiresAt))).toThrow();
+  } finally { vi.restoreAllMocks(); vi.useRealTimers(); }
 });

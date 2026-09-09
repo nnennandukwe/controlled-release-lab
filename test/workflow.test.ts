@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeState, previousOperation, workflowArguments } from '../tools/workflow.js';
+import cancelledApproval from './fixtures/github-cancelled-approval.json' with { type: 'json' };
 const env = { GITHUB_REPOSITORY: 'owner/lab', GH_TOKEN: 'fixture-token', GITHUB_RUN_ID: '100', GITHUB_RUN_ATTEMPT: '1', LAB_TARGET: 'live' };
 const priorRun = (id: number, run_attempt = 1) => ({ id, run_attempt, display_title: 'live / deploy', head_branch: 'main', status: 'completed' });
 const jobs = (conclusion: string, steps = [{ name: 'Execute the requested bounded operation', status: 'completed', conclusion }]) => ({ total_count: 1, jobs: [{ name: 'operate', status: 'completed', conclusion: 'failure', steps }] });
@@ -94,4 +95,24 @@ it('recovers durable state from the automated recovery rehearsal before the next
 it('forwards the rehearsal request and explicit apply through the public workflow command', () => {
   expect(workflowArguments({ LAB_OPERATION: 'rehearse-recovery', LAB_TARGET: 'staging', LAB_APPLY: 'true', LAB_RELEASE_DIR: 'work/release/current' }))
     .toEqual(['rehearse-recovery', '--target', 'staging', '--apply', '--release-dir', 'work/release/current']);
+});
+
+it('restores previous state after cancellation before the protected job received a runner', async () => {
+  const history = cancelledApproval;
+  const transport = vi.fn().mockResolvedValueOnce(Response.json({ workflow_runs: [priorRun(99), priorRun(98)] }))
+    .mockResolvedValueOnce(Response.json({ artifacts: [] })).mockResolvedValueOnce(Response.json(history))
+    .mockResolvedValueOnce(Response.json({ artifacts: [{ name: 'lab-state-live-98-1', expired: false }] }));
+  expect(await previousOperation(env, transport)).toEqual({ runId: '98', artifactName: 'lab-state-live-98-1' });
+});
+it.each([
+  { runner_id: 42, runner_name: 'assigned' },
+  { runner_id: null, runner_name: null },
+  { runner_id: 0 },
+  { runner_name: '' },
+  {},
+])('retains uncertainty for cancellation without proof of an unassigned runner: %j', async runner => {
+  const history = { total_count: 1, jobs: [{ name: 'operate', status: 'completed', conclusion: 'cancelled', steps: [], ...runner }] };
+  const transport = vi.fn().mockResolvedValueOnce(Response.json({ workflow_runs: [priorRun(99)] }))
+    .mockResolvedValueOnce(Response.json({ artifacts: [] })).mockResolvedValueOnce(Response.json(history));
+  await expect(previousOperation(env, transport)).rejects.toThrow('execution cannot be ruled out');
 });
