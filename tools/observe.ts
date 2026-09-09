@@ -84,7 +84,13 @@ export async function observe(baseUrl: string, input: Partial<ObservationOptions
   await Promise.all(pending);
   if (persistenceFailure) throw persistenceFailure;
   if (performance.now() >= deadline && samples.some(sample => sample.error === 'TIMEOUT')) budgetExhausted = true;
-  await delay(Math.max(0, started + options.durationSeconds * 1000 - performance.now()));
+  // Timers can round fractional delays down and wake before the minimum window.
+  // Recheck the monotonic clock instead of treating one wakeup as proof of time.
+  let remaining = started + options.durationSeconds * 1000 - performance.now();
+  while (remaining > 0) {
+    await delay(Math.ceil(remaining));
+    remaining = started + options.durationSeconds * 1000 - performance.now();
+  }
   const summary = summarize(samples, expected);
   if (budgetExhausted) { summary.outcome = 'blocked'; summary.reasonCodes.push('OBSERVATION_BUDGET_EXHAUSTED'); }
   return { startedAt, finishedAt: new Date().toISOString(), elapsedMs: performance.now() - started, options, samples, ...summary };
