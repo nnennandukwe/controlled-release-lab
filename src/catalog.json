@@ -1,0 +1,10 @@
+[
+  { "id": "keyboard-compact", "name": "Compact Mechanical Keyboard", "description": "Quiet switches and a compact footprint in a portable keyboard.", "category": "workspace", "priceCents": 8900 },
+  { "id": "keyboard-full", "name": "Full Size Keyboard", "description": "A complete desk keyboard with number pad.", "category": "workspace", "priceCents": 6900 },
+  { "id": "headphones-studio", "name": "Studio Headphones", "description": "Over-ear headphones for focused listening.", "category": "audio", "priceCents": 12900 },
+  { "id": "headphones-travel", "name": "Travel Headphones", "description": "Foldable headphones with a compact case.", "category": "audio", "priceCents": 9900 },
+  { "id": "lamp-desk", "name": "Adjustable Desk Lamp", "description": "Warm light for a comfortable workspace.", "category": "workspace", "priceCents": 4500 },
+  { "id": "stand-laptop", "name": "Laptop Stand", "description": "An elevated aluminum platform for your laptop.", "category": "workspace", "priceCents": 3900 },
+  { "id": "mug-insulated", "name": "Insulated Travel Mug", "description": "A reusable mug with a spill-resistant lid.", "category": "travel", "priceCents": 2500 },
+  { "id": "bag-daypack", "name": "Everyday Daypack", "description": "A lightweight bag with a padded laptop pocket.", "category": "travel", "priceCents": 7500 }
+]

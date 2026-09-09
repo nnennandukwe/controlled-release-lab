@@ -1,0 +1,239 @@
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, expect, it, vi } from 'vitest';
+import { execute, type Operation } from '../tools/operations.js';
+import { LabError, loadRecord } from '../tools/evidence.js';
+import type { Hosting, Snapshot, Deployment } from '../tools/railway.js';
+
+const roots: string[] = [];
+afterEach(async () => { await Promise.all(roots.map(root => rm(root, { recursive: true, force: true }))); roots.length = 0; });
+async function root() { const path = await mkdtemp(join(tmpdir(), 'release-operations-')); roots.push(path); return path; }
+const target = { projectId: '11111111-1111-4111-8111-111111111111', serviceId: '22222222-2222-4222-8222-222222222222', environmentId: '33333333-3333-4333-8333-333333333333', url: 'https://example.up.railway.app' };
+const image = `ghcr.io/example/lab@sha256:${'b'.repeat(64)}`;
+const sourceSha = 'a'.repeat(40);
+const deploymentId = '44444444-4444-4444-8444-444444444444';
+const deployment: Deployment = { id: deploymentId, ...target, status: 'SUCCESS', canRollback: true, image, metadataKeys: ['image'] };
+const request: Operation = { operation: 'deploy', targetName: 'staging', target, image, sourceSha, durationSeconds: 0.1, rate: 10, maxRequests: 1, apply: true };
+function host() {
+  let current: Snapshot = { sourceImage: null, active: [], latestId: null, configurationFingerprint: 'config-a' };
+  const hosting: Hosting = {
+    assertScope: vi.fn(async () => {}), snapshot: vi.fn(async () => current), deployment: vi.fn(async () => deployment),
+    updateImage: vi.fn(async updated => { current = { ...current, sourceImage: updated }; }),
+    deploy: vi.fn(async () => { current = { ...current, active: [deployment], latestId: deploymentId }; return deploymentId; }),
+    rollback: vi.fn(async () => {}),
+  };
+  return hosting;
+}
+const traffic = vi.fn(async () => Response.json({ sourceSha, environment: 'staging', deploymentId, requestId: '55555555-5555-4555-8555-555555555555', ranking: 'original', results: [{ id: 'keyboard-compact' }, { id: 'keyboard-full' }] })) as typeof fetch;
+it.each(['deploy', 'rollback'] as const)('requires a change reference before live %s provider access', async operation => {
+  const hosting = host();
+  await expect(execute({ ...request, operation, targetName: 'live', deploymentId }, hosting, await root(), traffic)).rejects.toThrow('change reference');
+  expect(hosting.assertScope).not.toHaveBeenCalled();
+  expect(hosting.updateImage).not.toHaveBeenCalled();
+  expect(hosting.rollback).not.toHaveBeenCalled();
+});
+it('records the live change reference and preserves it through reconciliation', async () => {
+  const hosting = host();
+  const deploy = hosting.deploy;
+  hosting.deploy = vi.fn(async () => { await deploy(); throw new LabError('PROVIDER_TRANSPORT', 'Lost response', 'unknown_outcome'); });
+  const liveTraffic: typeof fetch = async () => Response.json({ ...(await (await traffic('https://example.com')).json()), environment: 'live' });
+  const directory = await root();
+  const original = await execute({ ...request, targetName: 'live', changeReference: 'LAB-123' }, hosting, directory, liveTraffic);
+  const record = await loadRecord(original.recordPath);
+  expect(record.changeReference).toBe('LAB-123');
+  const reconciled = await execute({ ...request, targetName: 'live', operation: 'reconcile', attempt: record.attemptId, changeReference: 'LAB-OTHER' }, hosting, directory, liveTraffic);
+  expect(reconciled.outcome).toBe('verified');
+  expect((await loadRecord(reconciled.recordPath)).changeReference).toBe('LAB-123');
+});
+it('records a new rollback change reference rather than borrowing the baseline reference', async () => {
+  const directory = await root();
+  const liveTraffic: typeof fetch = async () => Response.json({ ...(await (await traffic('https://example.com')).json()), environment: 'live' });
+  const baseline = await execute({ ...request, targetName: 'live', changeReference: 'LAB-123' }, host(), directory, liveTraffic);
+  const hosting = host();
+  await hosting.updateImage(image);
+  await hosting.deploy();
+  const restored = await execute({ ...request, operation: 'rollback', targetName: 'live', deploymentId, restoreRecord: baseline.recordPath, changeReference: 'LAB-124' }, hosting, directory, liveTraffic);
+  expect(restored.outcome).toBe('unknown_outcome');
+  expect((await loadRecord(restored.recordPath)).changeReference).toBe('LAB-124');
+  const reconciled = await execute({ ...request, operation: 'reconcile', targetName: 'live', attempt: restored.attemptId! }, hosting, directory, liveTraffic);
+  expect(reconciled.outcome).toBe('verified');
+  expect((await loadRecord(reconciled.recordPath)).changeReference).toBe('LAB-124');
+});
+it('rejects a mutable image without making a deployment mutation', async () => {
+  const hosting = host();
+  await expect(execute({ ...request, image: 'ghcr.io/example/lab:latest' }, hosting, await root(), traffic)).rejects.toThrow();
+  expect(hosting.updateImage).not.toHaveBeenCalled();
+});
+it('records a lost mutation response as unknown and blocks another apply until reconciliation', async () => {
+  const hosting = host();
+  hosting.deploy = vi.fn(async () => { throw new LabError('PROVIDER_TRANSPORT', 'Timed out', 'unknown_outcome'); });
+  const directory = await root();
+  const result = await execute(request, hosting, directory, traffic);
+  expect(result.outcome).toBe('unknown_outcome');
+  expect((await loadRecord(result.recordPath)).requestedImage).toBe(image);
+  await expect(execute(request, hosting, directory, traffic)).rejects.toThrow('Reconcile');
+  expect(hosting.deploy).toHaveBeenCalledTimes(1);
+});
+it('verifies provider identity and a live observation before completing deployment', async () => {
+  const result = await execute(request, host(), await root(), traffic);
+  expect(result.outcome).toBe('verified');
+  expect(await loadRecord(result.recordPath)).toMatchObject({ deploymentId, requestedImage: image, requestedSourceSha: sourceSha, configurationFingerprint: 'config-a' });
+});
+it('does not attribute a newly observed deployment to an image update', async () => {
+  const hosting = host();
+  const updateImage = hosting.updateImage;
+  const externallyDeploy = hosting.deploy;
+  hosting.updateImage = vi.fn(async value => { await updateImage(value); await externallyDeploy(); });
+  hosting.deploy = vi.fn(async () => deploymentId);
+  const directory = await root();
+  const result = await execute(request, hosting, directory, traffic);
+  expect(result.outcome).toBe('unknown_outcome');
+  expect(result.reasonCodes).toContain('UNATTRIBUTED_DEPLOYMENT');
+  expect((await loadRecord(result.recordPath)).deploymentId).toBeNull();
+  expect(hosting.deploy).not.toHaveBeenCalled();
+  await expect(execute(request, hosting, directory, traffic)).rejects.toThrow('Reconcile');
+  const reconciled = await execute({ ...request, operation: 'reconcile', attempt: (await loadRecord(result.recordPath)).attemptId }, hosting, directory, traffic);
+  expect(reconciled.outcome).toBe('verified');
+  expect(reconciled.recoveryInstruction).toContain('does not prove');
+  expect(hosting.deploy).not.toHaveBeenCalled();
+});
+it('previews without invoking image or deployment mutations', async () => {
+  const hosting = host();
+  expect((await execute({ ...request, apply: false }, hosting, await root(), traffic)).outcome).toBe('preview');
+  expect(hosting.updateImage).not.toHaveBeenCalled();
+  expect(hosting.deploy).not.toHaveBeenCalled();
+});
+it('does not accept a different digest or a missing provider image claim', async () => {
+  for (const wrong of [null, image.replace('b'.repeat(64), 'c'.repeat(64))]) {
+    const hosting = host();
+    hosting.deployment = vi.fn(async () => ({ ...deployment, image: wrong }));
+    const result = await execute(request, hosting, await root(), traffic);
+    expect(result.outcome).toBe('unknown_outcome');
+    expect(result.reasonCodes).toContain(wrong ? 'DEPLOYED_IMAGE_MISMATCH' : 'IMAGE_EVIDENCE_UNAVAILABLE');
+  }
+});
+it('rejects live requests for another deployment even if provider deployment succeeded', async () => {
+  const wrongTraffic = (async () => Response.json({ ...(await (await traffic('https://example.com')).json()), deploymentId: '66666666-6666-4666-8666-666666666666' })) as typeof fetch;
+  const result = await execute(request, host(), await root(), wrongTraffic);
+  expect(result.reasonCodes).toContain('LIVE_IDENTITY_MISMATCH');
+});
+it.each(['state drift', 'read failure'])('releases the lock after preflight %s without claiming a mutation', async failure => {
+  const hosting = host();
+  const snapshot = hosting.snapshot;
+  const initial = await hosting.snapshot();
+  hosting.snapshot = failure === 'state drift'
+    ? vi.fn().mockResolvedValueOnce(initial).mockResolvedValue({ ...initial, configurationFingerprint: 'changed' })
+    : vi.fn().mockResolvedValueOnce(initial).mockRejectedValue(new LabError('PROVIDER_TRANSPORT', 'Read failed.'));
+  const directory = await root();
+  const result = await execute(request, hosting, directory, traffic);
+  expect(result.outcome).toBe('blocked');
+  expect(result.reasonCodes).toContain(failure === 'state drift' ? 'STATE_CHANGED' : 'PROVIDER_TRANSPORT');
+  expect(hosting.updateImage).not.toHaveBeenCalled();
+  hosting.snapshot = snapshot;
+  expect((await execute(request, hosting, directory, traffic)).outcome).toBe('verified');
+});
+it('aligns the configured image and retains rollback until read-only recovery verifies its saved configuration', async () => {
+  const directory = await root();
+  const baseline = await execute(request, host(), directory, traffic);
+  const hosting = host();
+  await hosting.updateImage(image);
+  await hosting.deploy();
+  // Real Railway native rollback restores the deployed image but leaves the
+  // service source unchanged unless the operator explicitly aligns it.
+  await hosting.updateImage(image.replace('b'.repeat(64), 'c'.repeat(64)));
+  vi.mocked(hosting.updateImage).mockClear();
+  const result = await execute({ ...request, operation: 'rollback', deploymentId, restoreRecord: baseline.recordPath }, hosting, directory, traffic);
+  expect(hosting.updateImage).toHaveBeenCalledWith(image);
+  expect(result).toMatchObject({ outcome: 'unknown_outcome', reasonCodes: ['ROLLBACK_REQUIRES_RECONCILIATION'] });
+  expect(result.recoveryInstruction).toContain('reconcile');
+  const original = await readFile(result.recordPath, 'utf8');
+  expect((await loadRecord(result.recordPath)).deploymentId).toBeNull();
+  const events = await readdir(join(directory, 'attempts', result.attemptId!));
+  expect(events.some(name => name.endsWith('-rollback-acknowledged.json'))).toBe(true);
+  expect(events.some(name => name.endsWith('-accepted.json'))).toBe(false);
+  await expect(execute(request, hosting, directory, traffic)).rejects.toMatchObject({ code: 'OPERATION_LOCKED' });
+  const reconciled = await execute({ ...request, operation: 'reconcile', attempt: result.attemptId! }, hosting, directory, traffic);
+  expect(reconciled.outcome).toBe('verified');
+  expect(await readFile(result.recordPath, 'utf8')).toBe(original);
+  expect(hosting.rollback).toHaveBeenCalledOnce();
+  expect((await execute(request, hosting, directory, traffic)).outcome).toBe('verified');
+});
+it('blocks an ineligible rollback without making a mutation', async () => {
+  const directory = await root();
+  const baseline = await execute(request, host(), directory, traffic);
+  const hosting = host();
+  hosting.deployment = vi.fn(async () => ({ ...deployment, canRollback: false }));
+  expect((await execute({ ...request, operation: 'rollback', deploymentId, restoreRecord: baseline.recordPath }, hosting, directory, traffic)).reasonCodes).toContain('ROLLBACK_UNAVAILABLE');
+  expect(hosting.updateImage).not.toHaveBeenCalled();
+  expect(hosting.rollback).not.toHaveBeenCalled();
+});
+it('refuses native rollback when provider state changes after source readback', async () => {
+  const directory = await root();
+  const baseline = await execute(request, host(), directory, traffic);
+  const hosting = host();
+  await hosting.updateImage(image);
+  await hosting.deploy();
+  const stable = await hosting.snapshot();
+  const competingId = '77777777-7777-4777-8777-777777777777';
+  hosting.snapshot = vi.fn()
+    .mockResolvedValueOnce(stable).mockResolvedValueOnce(stable).mockResolvedValueOnce(stable)
+    .mockResolvedValue({ ...stable, latestId: competingId, active: [{ ...deployment, id: competingId }] });
+  const result = await execute({ ...request, operation: 'rollback', deploymentId, restoreRecord: baseline.recordPath }, hosting, directory, traffic);
+  expect(result).toMatchObject({ outcome: 'unknown_outcome', reasonCodes: ['ROLLBACK_STATE_CHANGED'] });
+  expect(hosting.rollback).not.toHaveBeenCalled();
+  const record = await loadRecord(result.recordPath);
+  expect(record.deploymentId).toBeNull();
+  expect(record.observations).toContainEqual({ phase: 'rollback-drift', snapshot: { ...stable, latestId: competingId, active: [{ ...deployment, id: competingId }] } });
+  const directoryEntries = await readdir(join(directory, 'attempts', result.attemptId!));
+  const driftFile = directoryEntries.find(name => name.endsWith('-rollback-drift.json'));
+  expect(driftFile).toBeDefined();
+  expect(JSON.parse(await readFile(join(directory, 'attempts', result.attemptId!, driftFile!), 'utf8')).observation.latestId).toBe(competingId);
+  await expect(execute(request, hosting, directory, traffic)).rejects.toMatchObject({ code: 'OPERATION_LOCKED' });
+});
+it('reconciles an accepted deployment after its response was lost without repeating mutation', async () => {
+  const hosting = host();
+  const deploy = hosting.deploy;
+  hosting.deploy = vi.fn(async () => { await deploy(); throw new LabError('PROVIDER_TRANSPORT', 'Lost response', 'unknown_outcome'); });
+  const directory = await root();
+  const original = await execute(request, hosting, directory, traffic);
+  const attempt = (await loadRecord(original.recordPath)).attemptId;
+  const reconciled = await execute({ ...request, operation: 'reconcile', attempt }, hosting, directory, traffic);
+  expect(reconciled.outcome).toBe('verified');
+  expect(hosting.deploy).toHaveBeenCalledOnce();
+  expect((await loadRecord(original.recordPath)).outcome).toBe('unknown_outcome');
+});
+
+it.each(['deploy', 'rollback', 'reconcile'] as const)('rejects a stale configured source during %s', async operation => {
+  const directory = await root();
+  const baseline = await execute(request, host(), directory, traffic);
+  const hosting = host();
+  const deploy = hosting.deploy;
+  const wrongImage = image.replace('b'.repeat(64), 'c'.repeat(64));
+  let actualRequest: Operation = { ...request, operation };
+  if (operation === 'rollback') {
+    await hosting.updateImage(image);
+    await hosting.deploy();
+    hosting.rollback = vi.fn(async () => { await hosting.updateImage(wrongImage); });
+    actualRequest = { ...actualRequest, deploymentId, restoreRecord: baseline.recordPath };
+  } else {
+    hosting.deploy = vi.fn(async () => {
+      await deploy();
+      await hosting.updateImage(wrongImage);
+      if (operation === 'reconcile') throw new LabError('PROVIDER_TRANSPORT', 'Lost response', 'unknown_outcome');
+      return deploymentId;
+    });
+    if (operation === 'reconcile') {
+      const original = await execute(request, hosting, directory, traffic);
+      actualRequest = { ...actualRequest, attempt: (await loadRecord(original.recordPath)).attemptId };
+    }
+  }
+  let result = await execute(actualRequest, hosting, directory, traffic);
+  if (operation === 'rollback') {
+    expect(result.reasonCodes).toContain('ROLLBACK_REQUIRES_RECONCILIATION');
+    result = await execute({ ...request, operation: 'reconcile', attempt: result.attemptId! }, hosting, directory, traffic);
+  }
+  expect(result.reasonCodes).toContain('CONFIGURED_IMAGE_MISMATCH');
+  expect(result.outcome).toBe(operation === 'deploy' ? 'unknown_outcome' : 'blocked');
+  await expect(execute(request, hosting, directory, traffic)).rejects.toThrow('Reconcile');
+});

@@ -1,0 +1,8 @@
+{
+  "at": "2026-09-07T00:15:22.054Z",
+  "phase": "rollback-acknowledged",
+  "observation": {
+    "rollbackTarget": "230a9718-ebd2-4daf-88e0-1e95d2f02180",
+    "acknowledged": true
+  }
+}

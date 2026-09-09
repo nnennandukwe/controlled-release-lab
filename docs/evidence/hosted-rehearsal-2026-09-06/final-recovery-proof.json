@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-09-07T00:19:59.601Z",
+  "operatorSourceSha": "e15c5b34a3a56f890c7b7098c36b4e67b177723e",
+  "baselineAttempt": "5ca71d2e-7ada-47e8-a2d0-9f45113f14d4",
+  "rollbackAttempt": "ccbe1558-a6f9-4d0f-8afb-70d71cc110ac",
+  "reconciledAttempt": "2627b184-31c0-4619-9ed6-86817c7cb8e2",
+  "deploymentId": "677c904e-9f93-4cea-97bc-43139932cd76",
+  "image": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:87a99d8bd78d280705f4b30b8947030217d12e3848649ea9cda005f7fc71bd0c",
+  "sourceSha": "a635c9ea83a0a484fbffb673d949665bebfcca44",
+  "configurationFingerprint": "af3fb8c6c8a1cdbf6b981d32b40f8a7a5722c5082eecf20b1c22241dbd6f8b1d",
+  "normalOperatorReplay": true,
+  "rollbackOutcome": "unknown_outcome",
+  "rollbackReasonCodes": [
+    "ROLLBACK_REQUIRES_RECONCILIATION"
+  ],
+  "reconciliationOutcome": "verified",
+  "configuredAndServingImageAgree": true,
+  "originalDescriptionRestored": true,
+  "outstandingLocks": [],
+  "unchangedPriorRecords": [
+    {
+      "path": "work/hosted-rehearsal/attempts/68e6ff1e-8734-4627-8878-4e33a98631d2/record.json",
+      "sha256": "d325b6f970ccc5ae3a844d96fe85396f694a711bfaf70c3056a39662a4a7142f",
+      "unchanged": true
+    },
+    {
+      "path": "work/hosted-rehearsal/attempts/95195424-70c1-42c9-84fa-868d0da731bb/record.json",
+      "sha256": "9ff7f876b080e220a62489dd1ca458162fb05bfc6ba2d7fb73d7212657bde9d9",
+      "unchanged": true
+    },
+    {
+      "path": "work/hosted-rehearsal/attempts/a668e687-069e-494e-b7f2-d1d961833f64/record.json",
+      "sha256": "ac140c00ead0392254d34c32931c84371e099058f99c8b1b92e3908db5d715f2",
+      "unchanged": true
+    },
+    {
+      "path": "work/hosted-rehearsal/attempts/ccbe1558-a6f9-4d0f-8afb-70d71cc110ac/record.json",
+      "sha256": "5f3c2baae887b8174d0a2936d60aabae12d5a540923ae353a68a3ec37ef2136f",
+      "unchanged": true
+    }
+  ]
+}

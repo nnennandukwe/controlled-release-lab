@@ -3,6 +3,25 @@
 Recorded September 6, 2026. This is a bootstrap decision record, not a completed
 implementation plan or proof of deployment.
 
+## Follow-up decisions
+
+The user selected public GitHub source and public GHCR images when ready. This
+sets distribution policy, not immediate publication approval. Railway CLI login
+subsequently succeeded, and the LaunchDarkly trial was inspected in the signed-in
+UI. Bootstrap access observations below are historical. Railway is now configured
+for the dedicated lab, and both local operator preflights passed with scoped
+credentials. See the [Railway connection record](railway-connection.md) and its
+timestamped evidence. The account was verified as Hobby; hosted digest/rollback
+acceptance subsequently passed in the authorized [local rehearsal](hosted-rehearsal.md).
+GHCR images are now public; the source repo remains private. Protected GitHub
+Actions deployment access remains outstanding. The original bootstrap observations
+and proposed criteria below are historical; the rehearsal records executed results.
+
+The Build 1 implementation plan is saved in
+[.plan](../.plan/build-01-hosted-baseline-recovery.md). Builds 2–5 will be planned
+separately in that directory. See [the runbook](runbook.md) for the implemented
+operator contracts and remaining hosted acceptance.
+
 ## Direction
 
 Use the existing GitHub, Railway, and LaunchDarkly accounts. Railway is the
