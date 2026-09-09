@@ -15,8 +15,9 @@ timestamped evidence. The account was verified as Hobby; hosted digest/rollback
 acceptance subsequently passed in the authorized [local rehearsal](hosted-rehearsal.md).
 As of September 9, source and GHCR images are public. Protected GitHub Actions
 publication, staging/live promotion and native recovery passed the
-[Build 2 acceptance](build-02-closeout.md). Final replacement/revocation of the
-locally accessible Railway tokens remains open. The original bootstrap observations
+[Build 2 acceptance](build-02-closeout.md). At 18:22 UTC on September 9, fresh
+CI-only Railway tokens had passed protected checks and the older locally accessible
+tokens were verified revoked. The original bootstrap observations
 and proposed criteria below are historical; the rehearsal records executed results.
 
 The Build 1 implementation plan is saved in

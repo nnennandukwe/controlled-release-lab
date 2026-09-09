@@ -2,10 +2,10 @@
 
 ## Summary
 
-Design prepared September 9, 2026. Build 3 implementation starts only after the
-[Build 2 hosted closeout](../docs/build-02-closeout.md) is verified and its final
-CI-only Railway credential handoff is complete. No Build 3 code or
-LaunchDarkly resource has been created by this plan.
+Design prepared September 9, 2026. The [Build 2 hosted closeout](../docs/build-02-closeout.md)
+and final CI-only Railway credential handoff were verified complete at 18:22 UTC
+that day. Recheck the baseline at execution start. No Build 3 code or LaunchDarkly
+resource has been created by this plan.
 
 - Outcome: deploy a healthy ranking change with live exposure off, expose it to
   internal and 5% eligible synthetic cohorts, measure both variations, disable
