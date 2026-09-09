@@ -17,9 +17,15 @@ and [live catalog](https://catalog-live.up.railway.app). Build 2
 [passed signed C-to-D promotion and native recovery](docs/build-02-closeout.md),
 including its final CI-only credential handoff. Build 3
 [passed hosted internal and 5% exposure, refusal checks, and feature disablement](docs/build-03-closeout.md)
-on the same E deployment. Both environments finish with exposure off; the closeout
-discloses the remaining Qodo sampling-policy label. The seeded regression and
-completed repaired release remain Build 4.
+on the same E deployment. That closeout records both environments off and
+discloses the remaining Qodo sampling-policy label.
+
+[Build 4](.plan/build-04-regression-repair-release.md) adds query-specific latency
+gates, 25%/100% exposure, unhealthy diagnostics, and candidate F's disclosed
+teaching fixture: ranked `workspace` searches wait asynchronously for 1,000 ms.
+Normal queries and original search are unchanged. Its hosted failure and recovery
+must be verified before a separate source repair produces candidate G. This
+implementation is not evidence that the hosted Build 4 release has completed.
 
 ## Run locally
 
@@ -100,9 +106,12 @@ node --import tsx tools/lab.ts doctor --target staging
 | `work/locks/*.lock` | Environment ownership retained after an uncertain mutation |
 | GitHub `build-record-*` artifact | Published digest, producer identity, and signed image provenance |
 | GitHub `lab-proof-*` artifact | Signed deployment or exposure evidence bound to the exact subject |
+| GitHub `lab-diagnostic-*` artifact | Signed unhealthy observation; authenticates failure evidence but cannot authorize expansion |
 | GitHub `lab-state-*` artifact | Preserved operator evidence and unresolved locks |
 
-Exit `0` means verified or preview, `1` invalid/failed, and `2` blocked/unknown.
+Exit `0` means verified, preview or authenticated diagnostic; `1` invalid/failed;
+and `2` blocked/unknown. An authenticated diagnostic always reports
+`authorized: false` and cannot authorize release.
 A verified Build 1 operation means the provider image record and live observation
 agreed. It does not establish cryptographic provenance, production reliability,
 or feature-release completion.
@@ -125,6 +134,10 @@ or feature-release completion.
   remain unsigned and cannot authorize Build 2 promotion.
 - LaunchDarkly may serve cached values after disconnecting. Readiness and SDK
   initialization do not prove current flag delivery; failed or stale observations hold.
+- Internal observation covers only `keyboard` and `compact`. The challenge query
+  `workspace` enters treatment measurement at 5%; passing internal checks makes no
+  claim about its ranked latency. Full-population windows require every query and
+  variation group, even when the aggregate latency passes.
 - There is no runtime integration with ThreadLoop, GAAP, or `workshop-platform`.
 
 ## Plans and requirements

@@ -4,9 +4,11 @@ Build 2 publishes signed image provenance and signs measured deployment evidence
 Live promotion consumes a fresh staging observation and a request-bound GitHub
 OIDC identity inside the protected execution path. A signature establishes origin
 and integrity; the policy still decides whether its evidence is sufficient. Build 3
-adds version 2 deployment evidence containing managed flag state and actual
-variation samples. Historical Build 2 records remain unchanged and cannot satisfy
-the new current-policy promotion gate.
+added version 2 deployment evidence containing managed flag state and actual
+variation samples. Build 4 requires deployment schema 3, feature-proof schema 2,
+and exposure policy 2 with query-specific latency assessment. Legacy deployment
+schemas 1/2 and unversioned feature proofs remain readable for historical
+inspection; they cannot satisfy current-policy execution gates.
 
 The [Build 1 rehearsal](hosted-rehearsal.md) remains a historical record of the
 local A → B → A exercise. Its unsigned images and receipts are not eligible for
@@ -283,9 +285,12 @@ In each environment configure these ordered rules while leaving targeting off:
 2. Context kind `user`, attribute `cohort`, is one of `internal`: variation 1.
 
 The default serves variation 0. Turn off event tracking on rules and fallthrough.
-The operator adds its third rule only for the 5% transition: `cohort=eligible`,
-context kind `user`, bucket by `key`, 5,000/100,000 weight to variation 1 and the
-remaining 95,000 to variation 0. Other definitions fail closed. The provider's
+The operator adds its third rule at 5%: `cohort=eligible`, context kind `user`,
+bucket by `key`, 5,000/100,000 weight to variation 1 and 95,000 to variation 0.
+The 25% and 100% transitions change only those weights to 25,000/75,000 and
+100,000/0. Rule identity, salt, context kind and bucketing inputs stay fixed;
+observations must also confirm retention of earlier treatment personas.
+Other definitions fail closed. The provider's
 rule IDs, salt, variation IDs/order, environment version and managed fields are
 included in evidence. The captured wrong-version rejection is in
 `test/fixtures/launchdarkly-version-refusal.json` (HTTP 409, unchanged off state).
@@ -324,13 +329,17 @@ selectable demonstration identities, not employee authentication.
 
 ### Deployment and audience sequence
 
-Publish healthy image E once and finish its staging recovery rehearsal while the
-flag is off. Retain its signed staging `lab-proof` run as the off baseline. Then:
+Publish each candidate once and finish its staging recovery rehearsal while the
+flag is off. Retain its signed staging `lab-proof` run as the off baseline.
+Publication requires separate authorization. Allowed transitions are
+`off → internal → 5 → 25 → 100`; independent disable is allowed from any stage.
 
 | Operation | Inputs in addition to target and change reference |
 |---|---|
 | `expose`, stage `internal` | `evidence_run`/`evidence_attempt`: signed off deployment baseline; `apply=true` |
 | `expose`, stage `5` | Same off baseline, plus `exposure_run`/`exposure_attempt`: successful internal exposure; `apply=true` |
+| `expose`, stage `25` | Same off baseline, plus `exposure_run`/`exposure_attempt`: successful 5% exposure; `apply=true` |
+| `expose`, stage `100` | Same off baseline, plus `exposure_run`/`exposure_attempt`: successful 25% exposure; `apply=true` |
 | `disable` | Same retained off deployment baseline; `apply=true`; no healthy prior treatment required |
 | `observe-exposure` | Off deployment baseline; measures current state without PATCH |
 | `reconcile-exposure` | Original uncertain exposure `attempt` UUID; no apply |
@@ -353,16 +362,16 @@ LaunchDarkly outage. The raw fixture and original record remain in `lab-state`;
 the recovered exposure receives the ordinary signed `lab-proof` artifact.
 
 The CLI equivalent adds `--rehearse-response-loss` to an applied internal staging
-`expose` command. Live, 5%, disable and preview rehearsals are rejected before
+`expose` command. Live, percentage stages, disable and preview rehearsals are rejected before
 provider access. If interrupted, restore the retained state and use ordinary
 `reconcile-exposure`; never rerun the original mutation. This protected hosted
 check follows the main-branch implementation merge; PR tests use REST seams and
 must not be described as hosted acceptance.
 
-First expose internal users in staging. Promote E's exact digest to live through
-the fresh both-variation staging proof and live-off guard. Retain live's signed off
-baseline; perform internal, then 5%, then disable in live. Reset staging using its
-own baseline and protected disable. End with E deployed and off in both targets.
+Build 3 performed staging internal exposure, promoted E's exact digest through
+the both-variation staging proof and live-off guard, then performed internal,
+5%, and disable in live. Its closeout records E off in both targets. Build 4's
+sequence is below; those historical observations cannot authorize its operations.
 A request expires after 30 minutes; an expired initial off baseline needs a new
 protected `observe` run before internal exposure. The retained off baseline remains
 usable for disable and the paired latency comparison after expansion.
@@ -372,6 +381,8 @@ Local equivalents, after downloading the resolved artifact into the named direct
 ```bash
 npm run lab -- expose --target live --stage internal --release-dir work/release/current
 npm run lab -- expose --target live --stage 5 --release-dir work/release/current
+npm run lab -- expose --target live --stage 25 --release-dir work/release/current
+npm run lab -- expose --target live --stage 100 --release-dir work/release/current
 npm run lab -- disable --target live --release-dir work/release/current
 npm run lab -- observe-exposure --target live --release-dir work/release/current
 npm run lab -- reconcile-exposure --target live --attempt 'replace-with-attempt-uuid'
@@ -382,27 +393,42 @@ JSON, target override, sampling override or skip-check switch. Preview reads and
 verifies evidence but sends no PATCH. A new request binds image, source, deployment,
 configuration, policy, roster, intended audience, provider version and operator run.
 
-Build 2 version 1 deployment evidence remains historical. Selecting it for rollback
-now fails with `FEATURE_PROOF_REQUIRED`; establish a compatible version 2 baseline
-under the current SDK and configuration policy. Keeping old records does not
-authorize their old configuration under the new policy.
+Legacy deployment evidence remains historical. Establish a compatible schema 3
+off baseline under the current exposure policy before replacing a rollback target.
+Keeping old records does not authorize their old policy or configuration. Current
+exposure envelopes still use schema 1, but their embedded feature proof is schema 2.
 
 ### Measurement and recovery
 
-Internal exposure collects 120 requests over at least 60 seconds: 20 internal,
-20 eligible-control and 20 excluded contexts, each with `keyboard` and `compact`.
-The 5% and off windows collect 1,160 requests over at least 120 seconds: all 1,040
-contexts with `keyboard`, then a fixed 120-context subset with `compact`. Launches
-are limited to 10/sec, concurrency 2, five-second request timeouts, and a 180-second
-deadline. Five percent requires at least 20 distinct eligible treatment and 200
-eligible control contexts; internal traffic cannot fill the eligible denominator.
-Stable hashing does not promise exactly 5% of a finite roster. A read-only
-`observe-exposure` record cannot supply the prior internal exposure authority for
-5%; use the successful internal `expose` record or its verified reconciliation.
+The workload is fixed before measurement:
+
+| Stage | Requests and minimum window | Workload |
+|---|---|---|
+| Internal | 120 over 60 seconds | 20 personas from each cohort, each with `keyboard` and `compact` |
+| Off, 5%, 25%, 100% | 1,160 over 120 seconds | `workspace` for all 1,040 personas, plus `keyboard` and `compact` for 20 personas from each cohort |
+
+Internal and the initial staging checks cover normal queries only in treatment;
+they do not evaluate ranked `workspace`. At 5% the challenge query enters treatment
+testing. Every required query/variation group needs at least 20 distinct personas.
+At 5% and 25%, `workspace` needs at least 20 eligible treatments and 200 eligible
+controls; internal traffic cannot fill that denominator. At 100%, all 1,000 eligible
+and 20 internal personas must receive ranked behavior, while all 20 excluded
+personas remain original. Stable hashing does not promise exactly a percentage
+of this finite roster. Each expansion consumes its fresh immediate predecessor's
+authorized exposure proof; a read-only `observe-exposure` is never a replacement.
+
+Launches are limited to 10/sec, concurrency 2, five-second request timeouts,
+1,200 requests and a 180-second deadline. No resampling, deadline extension or
+threshold relaxation is permitted to obtain a pass.
 
 Every sample retains actual value/index/reason, context, latency, response identity
 and result ordering. The operator requires zero functional/identity/evaluation
-errors and p95 no greater than max(500 ms, twice the paired off baseline).
+errors and both aggregate and query/variation p95 no greater than
+max(500 ms, twice the off-baseline p95 for that query). The initial off deployment
+window uses the independent normal deployment probe's p95 to establish its
+bootstrap limits; every subsequent exposure uses recomputed per-query p95 from
+that authenticated off window. These baselines remain bound to the same image,
+deployment, configuration and policy.
 These are tutorial thresholds, not production SLOs. Missing responses and missing
 cohorts hold; the operator never discards failures or resamples until green.
 A passing p95 alone cannot establish coverage: at a sustained 500 ms per request,
@@ -426,21 +452,131 @@ no effective update and requires a new request.
 A lost response or uncertain effect retains a shared deployment/exposure lock.
 `reconcile-exposure` reads the original attempt, verifies the desired state and
 collects a new window without repeating PATCH or rewriting the original record.
+If stable provider readback establishes the desired state but the new measurement
+is unhealthy, reconciliation records `blocked` and releases only the original
+attempt's owned lock. The original `unknown_outcome` record remains unchanged;
+known application of the flag is separate from measured health.
 
 A confirmed exposure with an unhealthy measured hold records `blocked` and permits
 a separately authorized disable. Disable changes only this flag to off; it does
 not redeploy. Recovery needs off provider state, false non-fallback evaluations,
 original ordering for the full roster, and the same serving image/deployment.
-Cached true responses leave recovery unverified. If observation signing fails,
-state remains in `lab-state`; use a fresh `observe-exposure` operation after repair.
+Cached true responses leave recovery unverified. If observation signing or upload
+fails, state and samples remain in `lab-state`; no signed evidence is claimed.
+A fresh `observe-exposure` can measure current health after signing is repaired,
+but cannot replace the missing authorized predecessor. To restart an expansion
+chain, independently disable and obtain fresh off/internal evidence.
 Neither a green workflow nor a 2xx response alone means the feature recovered.
 
 Exposure files live under `work/exposure/attempts/UUID/`; `exposure-record.json`
 and its SHA-256 sidecar are immutable. `lab-proof` contains
 `exposure-evidence.json` plus `evidence.bundle.jsonl` for exposure operations,
 or `deployment-evidence.json` plus the bundle for deployment operations.
-Historical records are preserved. New deployment proof is schema version 2;
-exposure requests, records and evidence use their own schema version 1.
+Historical records are preserved. New deployment proof is schema version 3;
+feature proofs use schema 2; exposure requests, records and envelopes use schema 1.
+
+Completed unhealthy observations publish a separate `lab-diagnostic-<target>-<run>-<attempt>`
+artifact with `exposure-diagnostic.json` and `evidence.bundle.jsonl`. Its verifier
+allows a failed operator run only when that exact job successfully sealed,
+attested and uploaded the diagnostic. Ordinary eligibility verification still
+rejects failed runs and blocked records. After downloading the whole artifact:
+
+```bash
+npm run lab -- verify-diagnostic --target live --release-dir artifacts/failed-exposure
+```
+
+This needs GitHub/Sigstore access and `GH_TOKEN`, but no Railway or LD credentials.
+The result is `diagnostic_authenticated` with `authorized: false`; it recomputes
+the assessment from raw samples. A missing bundle or failed signing/upload is not
+a verified diagnostic. `work/last-result.json` is only a derived pointer for the
+current workflow run and operation; a new invocation removes a stale pointer.
+
+### Build 4 hosted execution
+
+The [approved plan](../.plan/build-04-regression-repair-release.md) separates two
+implementation PRs with hosted failure and recovery between them. Before any
+publication or live change, obtain authorization for the concrete source/digest,
+operations, and cumulative request budget. The proposed ceiling is 40,000 search
+requests including retries across both candidates. Keep a ledger of every
+deployment probe, feature window, recovery window, failed/incomplete attempt and
+manual search. Stop before the next window would exceed the remaining budget.
+
+1. Recheck provider scope, serving E image/deployments, compatible configuration,
+   flag identity/state, unresolved locks, and E's native rollback eligibility.
+   Use the source/image/run identities in the Build 3 closeout only as selectors;
+   provider reads must confirm them. Do not introduce F without a retained E
+   rollback target. Collect fresh signed `observe` off deployment proofs of E in
+   both environments with the new operator policy, selecting E's original image
+   publication. This refreshes evidence without rebuilding E.
+2. Publish F once after PR 1 merges. Complete staging response-loss deployment
+   recovery and its queued normal-query internal flag rehearsal. The declared
+   fixture adds an asynchronous 1,000 ms delay only when ranked search evaluates
+   true for normalized `workspace`. It changes no result membership or ranking,
+   and has no runtime switch. These checks make no ranked challenge-latency claim.
+3. Promote F's exact digest with live off, retaining its live off baseline. Run
+   protected internal then 5% exposure, each with the required fresh evidence.
+   Retain the signed unhealthy diagnostic and raw samples. Attempt to resolve
+   25% using the failed 5% run: it must refuse before any PATCH because no healthy
+   predecessor proof exists. Do not bypass the hold or repeat favorable windows.
+4. Independently authorize `disable` using F's retained live off baseline. Verify
+   all 1,160 requests return original behavior on the same F deployment, with
+   the provider flag off. Then independently perform native rollback using E's
+   fresh schema 3 proof. Retain the acknowledged unknown outcome, run `reconcile`,
+   and verify E's digest, compatible variables, live identity/behavior, unchanged
+   external off flag, and resolved owned locks. Reset staging with its own
+   separately protected disable.
+5. Only after both recoveries are verified, implement PR 2: add a failing HTTP
+   latency regression test against F, remove the source delay to produce G, and
+   retain that passing regression test without changing workload or thresholds.
+   Run full verification and the complete local/current-head PR review loop.
+6. Publish G once. Complete staging recovery and internal checks, then staging 5%
+   to verify the challenge workload in treatment. Promote that same digest to
+   live with exposure off and retain a fresh off baseline. Complete live internal
+   → 5% → 25% → 100%, using separate protected actions and fresh immediate
+   predecessor evidence. Independently disable staging after promotion.
+7. Run an additional signed live 100% `observe-exposure` window. Verify the signed
+   authorized 100% exposure proof as release-completion evidence; the extra window
+   is monitoring evidence. Leave live G at 100% of eligible synthetic personas,
+   excluded controls original, and staging off. Write a factual Build 4 closeout
+   linking F's failure, both recoveries, G's repair/source/image, every rollout
+   stage, and the first monitoring observation, including uncertain attempts.
+
+Each operation above uses **Operate lab** inputs in the table. Evidence selectors
+always identify exact producer run/attempts; never rerun an old mutation job.
+The automated image-to-staging and staging-to-internal queues still require their
+protected owner approvals; inspect existing queued requests before dispatching.
+
+### Operator monitoring and retained recovery
+
+After downloading the entire signed 100% exposure artifact, authenticate it with:
+
+```bash
+npm run lab -- verify-exposure --target live --release-dir artifacts/completed-exposure
+```
+
+This verifies the exact signature and successful producer, current policy, subject,
+and raw measurements. `completionEvidence: true` requires a fresh healthy 100%
+authorized exposure (or its verified reconciliation); a read-only monitoring
+record returns false. `authorized: false` means this verification grants no new
+mutation permission. It proves the recorded window, not continuing service health.
+Run it promptly: current proof freshness is 30 minutes.
+
+Nnenna runs one signed live `observe-exposure` window daily and after any deployment,
+flag or configuration change. Build 4 includes the first additional 100% window.
+Use G's off deployment baseline for the unchanged subject; a changed deployment
+or configuration needs a fresh compatible baseline. Read the recomputed aggregate
+and query/variation metrics, zero-error/identity gates, complete roster and full
+window before recording healthy status. Missing telemetry or inadequate coverage
+is a hold. Investigate and separately authorize disable or rollback when needed.
+There is no unattended monitor or automatic disablement.
+
+Retain the flag through the Build 5 rehearsal. Removal requires seven healthy
+daily windows, no unresolved recovery, and a separately reviewed removal and
+rollback plan. Retain images, compatible configuration and native rollback
+targets; a flag cannot undo writes, migrations or in-flight effects. Before the
+existing 90-day GitHub artifact retention expires, archive original state,
+requests, envelopes, bundles and referenced artifacts with their hashes and run
+identities. Preserve failed and uncertain history alongside successful proofs.
 
 ## Acceptance and cleanup
 

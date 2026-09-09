@@ -23,7 +23,9 @@ and proposed criteria below are historical; the rehearsal records executed resul
 The Build 1 implementation plan is saved in
 [.plan](../.plan/build-01-hosted-baseline-recovery.md). Build 2 and the
 [Build 3 exposure plan](../.plan/build-03-controlled-feature-exposure.md) now have
-separate files there; Builds 4–5 will be planned separately. See [the runbook](runbook.md) for the implemented
+separate files there. The approved [Build 4 plan](../.plan/build-04-regression-repair-release.md)
+separates fixture/control implementation from repair with hosted failure and
+recovery between them; Build 5 still needs its own plan. See [the runbook](runbook.md) for the implemented
 operator contracts and remaining hosted acceptance.
 
 ## Direction
