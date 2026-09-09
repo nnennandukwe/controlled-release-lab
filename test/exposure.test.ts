@@ -1,3 +1,4 @@
+import { rehearseExposureRecovery } from '../tools/exposure-rehearsal.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -22,7 +23,7 @@ vi.mock('node:timers/promises',()=>({setTimeout:async(milliseconds:number)=>{awa
 const keys=await generateKeyPair('RS256');
 const roots:string[]=[];
 afterEach(async()=>{vi.useRealTimers();vi.unstubAllGlobals();vi.unstubAllEnvs();await Promise.all(roots.splice(0).map(root=>rm(root,{recursive:true,force:true})));});
-async function fixture(options:{forged?:boolean;lost?:boolean;conflict?:boolean;unhealthy?:boolean;operation?:'expose'|'disable';stage?:'5';priorOperation?:'expose'|'observe-exposure';reconciled?:boolean}={}){
+async function fixture(options:{rehearsal?:boolean;forged?:boolean;lost?:boolean;conflict?:boolean;unhealthy?:boolean;operation?:'expose'|'disable';stage?:'5';priorOperation?:'expose'|'observe-exposure';reconciled?:boolean}={}){
  vi.useFakeTimers({toFake:['Date','performance','setTimeout','clearTimeout']});
  const root=await mkdtemp(join(tmpdir(),'exposure-gate-'));roots.push(root);
  const subject={sourceSha:'b'.repeat(40),deploymentId:randomUUID(),targetName:'staging' as const,target:policy.targets.staging,image:`ghcr.io/${policy.repository}@sha256:${'a'.repeat(64)}`,configurationFingerprint:policy.configurationFingerprints.staging};
@@ -35,7 +36,7 @@ async function fixture(options:{forged?:boolean;lost?:boolean;conflict?:boolean;
  const files:Record<string,string>={'image.bundle.jsonl':'authenticated image seam','deployment-evidence.json':JSON.stringify(envelope),'deployment.bundle.jsonl':'authenticated deployment seam'};
  
  const operation=options.operation??'expose',stage=operation==='disable'?'off':options.stage??'internal';
- const request=exposureRequestSchema.parse({schemaVersion:1,kind:'exposure-request',operation,stage,...subject,build,operator,policyDigest,exposurePolicyDigest,rosterDigest,before,desired:desiredFlagState(before,stage),changeReference:'BUILD-3-TEST',...requestValidity(),observation:{internal:120,population:1160,maxRequests:1200,deadlineSeconds:180},attachments:Object.entries(files).map(([name,bytes])=>({name,sha256:sha256(bytes)}))});
+ const request=exposureRequestSchema.parse({schemaVersion:1,kind:'exposure-request',purpose:options.rehearsal?'response-loss-rehearsal':'release',operation,stage,...subject,build,operator,policyDigest,exposurePolicyDigest,rosterDigest,before,desired:desiredFlagState(before,stage),changeReference:'BUILD-3-TEST',...requestValidity(),observation:{internal:120,population:1160,maxRequests:1200,deadlineSeconds:180},attachments:Object.entries(files).map(([name,bytes])=>({name,sha256:sha256(bytes)}))});
  if(options.stage==='5'){
   const priorOperation=options.priorOperation??'expose';
   const internalProof=featureFixture(subject,'internal');
@@ -81,7 +82,7 @@ async function fixture(options:{forged?:boolean;lost?:boolean;conflict?:boolean;
  vi.stubGlobal('fetch',transport);
  const hosting:Hosting={assertScope:vi.fn(async()=>{}),snapshot:vi.fn(async()=>baseline.providerBefore as Snapshot),deployment:vi.fn(async()=> (baseline.providerBefore as Snapshot).active[0]!),updateImage:vi.fn(),deploy:vi.fn(),rollback:vi.fn()};
  const flags=new LaunchDarkly('reader-fixture','writer-fixture','staging',transport);
- const input={operation,targetName:'staging' as const,releaseDir:root,...(operation==='expose'?{stage:'internal' as const}:{}),apply:true};
+ const input={operation,rehearseResponseLoss:options.rehearsal??false,targetName:'staging' as const,releaseDir:root,...(operation==='expose'?{stage:'internal' as const}:{}),apply:true};
  return{root,request,bytes,hosting,flags,transport,input,raw,patches:()=>patches};
 }
 it('refuses a forged protected identity before submitting any flag effect',async()=>{
@@ -135,5 +136,27 @@ it('rejects read-only internal observation evidence as authority for five-percen
 it.each([false,true])('accepts authorized internal exposure evidence, reconciled=%s',async reconciled=>{
  const scenario=await fixture({stage:'5',reconciled});
  await expect(verifyExposureRelease(scenario.root)).resolves.toMatchObject({request:{stage:'5'}});
+ expect(scenario.patches()).toBe(0);
+});
+
+it('rehearses one acknowledged flag effect and read-only recovery through the protected execution path',async()=>{
+ const scenario=await fixture({rehearsal:true}),work=join(scenario.root,'work');
+ const result=await rehearseExposureRecovery(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
+ expect(result.outcome).toBe('verified');expect(scenario.patches()).toBe(1);
+ expect(result.rehearsal).toMatchObject({simulatedFailure:true,updateCalls:1,originalRecordUnchanged:true,lockReleased:true});
+ const record=await loadExposureRecord(result.recordPath);
+ expect(record.operation).toBe('reconcile-exposure');expect(record.request.purpose).toBe('response-loss-rehearsal');
+ expect(record.featureProof?.measurement).toMatchObject({requests:120,failures:0});
+ expect(scenario.hosting.deploy).not.toHaveBeenCalled();expect(scenario.hosting.updateImage).not.toHaveBeenCalled();
+ expect(createExposureEnvelope(record,scenario.request.operator).record.reconciles).toBe(result.rehearsal.originalAttemptId);
+},30000);
+it('refuses a rehearsal when the approved request did not declare the failure fixture',async()=>{
+ const scenario=await fixture();
+ await expect(rehearseExposureRecovery({...scenario.input,rehearseResponseLoss:true},scenario.hosting,scenario.flags,join(scenario.root,'work'),scenario.transport)).rejects.toMatchObject({code:'EXPOSURE_SUBJECT_CHANGED'});
+ expect(scenario.patches()).toBe(0);
+});
+it.each([{targetName:'live' as const},{stage:'5' as const},{apply:false}])('forbids response-loss rehearsal outside an applied internal staging exposure: %j',async change=>{
+ const scenario=await fixture({rehearsal:true});
+ await expect(rehearseExposureRecovery({...scenario.input,...change},scenario.hosting,scenario.flags,join(scenario.root,'work'),scenario.transport)).rejects.toMatchObject({code:'REHEARSAL_TARGET_REJECTED'});
  expect(scenario.patches()).toBe(0);
 });

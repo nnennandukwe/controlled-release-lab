@@ -67,6 +67,7 @@ export function workflowArguments(environment: NodeJS.ProcessEnv): string[] {
   const args = [operation, '--target', z.enum(['staging', 'live']).parse(environment.LAB_TARGET)];
   const exposure = ['expose', 'disable', 'observe-exposure', 'reconcile-exposure'].includes(operation);
   if (operation === 'expose') args.push('--stage', z.enum(['internal', '5']).parse(environment.LAB_STAGE));
+  if (environment.LAB_REHEARSE_RESPONSE_LOSS === 'true') args.push('--rehearse-response-loss');
   if (!exposure && environment.LAB_CHANGE_REFERENCE) args.push('--change-reference', environment.LAB_CHANGE_REFERENCE);
   if (!exposure && operation !== 'doctor' && environment.LAB_MAX_DURATION_SECONDS !== undefined) {
     const maximum = z.coerce.number().min(60).max(300).parse(environment.LAB_MAX_DURATION_SECONDS);

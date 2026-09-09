@@ -335,6 +335,24 @@ flag is off. Retain its signed staging `lab-proof` run as the off baseline. Then
 | `observe-exposure` | Off deployment baseline; measures current state without PATCH |
 | `reconcile-exposure` | Original uncertain exposure `attempt` UUID; no apply |
 
+For the staging internal exposure, set `rehearse_response_loss=true` in **Operate
+lab**. The resolved request names `purpose=response-loss-rehearsal`, which must
+match the command before any effect. This uses the same protected staging
+approval and Writer scope. The rehearsal sends one real conditional flag update,
+discards the successful response as a labeled teaching fixture, verifies the
+original unknown outcome and retained lock, then runs read-only reconciliation.
+It asserts one update call, unchanged original evidence, and a released lock only
+after real cohort observation verifies recovery. It does not simulate a natural
+LaunchDarkly outage. The raw fixture and original record remain in `lab-state`;
+the recovered exposure receives the ordinary signed `lab-proof` artifact.
+
+The CLI equivalent adds `--rehearse-response-loss` to an applied internal staging
+`expose` command. Live, 5%, disable and preview rehearsals are rejected before
+provider access. If interrupted, restore the retained state and use ordinary
+`reconcile-exposure`; never rerun the original mutation. This protected hosted
+check follows the main-branch implementation merge; PR tests use REST seams and
+must not be described as hosted acceptance.
+
 First expose internal users in staging. Promote E's exact digest to live through
 the fresh both-variation staging proof and live-off guard. Retain live's signed off
 baseline; perform internal, then 5%, then disable in live. Reset staging using its

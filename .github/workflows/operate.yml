@@ -12,6 +12,10 @@ on:
         type: choice
         options: [internal, '5']
         default: internal
+      rehearse_response_loss:
+        description: Staging internal exposure only; discard one flag response and verify read-only recovery
+        type: boolean
+        default: false
       exposure_run:
         description: Exact successful internal exposure run (5 percent expansion)
         type: string
@@ -70,6 +74,7 @@ env:
   GH_TOKEN: ${{ github.token }}
   LAB_OPERATION: ${{ inputs.operation }}
   LAB_STAGE: ${{ inputs.stage }}
+  LAB_REHEARSE_RESPONSE_LOSS: ${{ inputs.rehearse_response_loss }}
   LAB_EXPOSURE_RUN: ${{ inputs.exposure_run }}
   LAB_EXPOSURE_ATTEMPT: ${{ inputs.exposure_attempt }}
   LAB_TARGET: ${{ inputs.target }}

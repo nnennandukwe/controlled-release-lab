@@ -13,7 +13,7 @@ import type { Hosting } from './railway.js';
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const attachments = ['image.bundle.jsonl', 'deployment-evidence.json', 'deployment.bundle.jsonl', 'prior-exposure.json', 'prior.bundle.jsonl'] as const;
 export const exposureRequestSchema = z.object({
-  schemaVersion: z.literal(1), kind: z.literal('exposure-request'), operation: z.enum(['expose', 'disable', 'observe-exposure']), stage: z.enum(['off', 'internal', '5']),
+  schemaVersion: z.literal(1), kind: z.literal('exposure-request'), purpose: z.enum(['release', 'response-loss-rehearsal']).default('release'), operation: z.enum(['expose', 'disable', 'observe-exposure']), stage: z.enum(['off', 'internal', '5']),
   targetName: z.enum(['staging', 'live']), target: targetSchema, image: imageSchema, sourceSha: z.string().regex(/^[a-f0-9]{40}$/), deploymentId: z.string().uuid(),
   configurationFingerprint: digest, policyDigest: digest, exposurePolicyDigest: digest, rosterDigest: digest,
   build: producerSchema, operator: producerSchema, before: flagSnapshotSchema, desired: flagStateSchema,
@@ -34,6 +34,7 @@ export const serializeExposure = (input: ExposureRequest) => `${JSON.stringify(e
 export const exposureSubject = (request: ExposureRequest): FeatureSubject => ({ targetName: request.targetName, target: request.target, image: request.image, sourceSha: request.sourceSha, deploymentId: request.deploymentId, configurationFingerprint: request.configurationFingerprint });
 
 export function checkExposureRequest(request: ExposureRequest, now = Date.now()) {
+  if (request.purpose === 'response-loss-rehearsal' && (request.operation !== 'expose' || request.targetName !== 'staging' || request.stage !== 'internal')) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Flag recovery rehearsals require an internal staging exposure.');
   const before = validateFlagSnapshot(request.before, request.targetName);
   const issued = Date.parse(request.issuedAt), expires = Date.parse(request.expiresAt);
   if (issued > now + policy.clockSkewSeconds * 1000 || expires <= now || expires <= issued || expires - issued > policy.maxEvidenceAgeSeconds * 1000) throw new LabError('EXPOSURE_REQUEST_EXPIRED', 'Resolve a new exposure request before approval.');
@@ -117,7 +118,7 @@ async function loadExposureAttempt(root: string, attempt: string) {
   if (!intent) throw new LabError('MISSING_EXPOSURE_INTENT', 'Restore the original durable exposure intent before reconciliation.');
   return { directory, record: exposureRecordSchema.parse(JSON.parse(await readFile(join(directory, intent), 'utf8')).observation) };
 }
-export type ExposureOperation = { operation: 'expose' | 'disable' | 'observe-exposure' | 'reconcile-exposure'; targetName: 'staging' | 'live'; releaseDir?: string; stage?: 'internal' | '5'; apply?: boolean; attempt?: string };
+export type ExposureOperation = { operation: 'expose' | 'disable' | 'observe-exposure' | 'reconcile-exposure'; targetName: 'staging' | 'live'; releaseDir?: string; stage?: 'internal' | '5'; apply?: boolean; attempt?: string; rehearseResponseLoss?: boolean };
 export async function executeExposure(input: ExposureOperation, hosting: Hosting, flags: FlagProvider, root: string, transport: typeof fetch = fetch) {
   const mutating = input.operation === 'expose' || input.operation === 'disable';
   if (input.apply && !mutating) throw new LabError('INVALID_EXPOSURE_ARGUMENT', 'Observation and reconciliation are read-only.');
@@ -130,6 +131,7 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
   if (!directory) throw new LabError('EXPOSURE_PROOF_REQUIRED', 'Use --release-dir with an exact authenticated exposure request.');
   const verified = await verifyExposureRelease(directory, !!prior), request = verified.request;
   if (request.targetName !== input.targetName || (!prior && request.operation !== input.operation) || (input.operation === 'expose' && request.stage !== input.stage)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'Command and resolved exposure request disagree.');
+  if (!prior && (request.purpose === 'response-loss-rehearsal') !== (input.rehearseResponseLoss === true)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'The approved request and command must agree on the response-loss rehearsal.');
   if (prior && (verified.requestDigest !== prior.record.requestDigest || fingerprint(request) !== fingerprint(prior.record.request))) throw new LabError('EXPOSURE_RECORD_CHANGED', 'The prior intent and retained request disagree.');
   await hosting.assertScope(); await flags.assertScope();
   const subject = exposureSubject(request);

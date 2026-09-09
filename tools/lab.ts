@@ -7,6 +7,7 @@ import { LabError, targetSchema } from './evidence.js';
 import { execute, type Operation } from './operations.js';
 import { rehearseRecovery } from './recovery-rehearsal.js';
 import { executeExposure, type ExposureOperation } from './exposure.js';
+import { rehearseExposureRecovery } from './exposure-rehearsal.js';
 import { LaunchDarkly } from './launchdarkly.js';
 import { Railway } from './railway.js';
 import { checkRequest, releaseRequestSchema, verifyRelease } from './promotion.js';
@@ -30,7 +31,7 @@ Usage: npm run lab -- <doctor|verify|deploy|observe|rollback|reconcile|rehearse-
   reconcile-exposure Observe an uncertain flag operation without repeating PATCH.
 
 Options:
-  --stage internal|5         Exposure stage (expose only)
+  --rehearse-response-loss   Staging internal --apply only; discard the flag response and reconcile\n  --stage internal|5         Exposure stage (expose only)
   --config PATH             Target map (default config/lab.json; LAB_CONFIG_JSON also supported)
   --release-dir PATH        Immutable request and signed attachments; required for protected apply
   --image IMAGE@sha256:...   Immutable GHCR image for deploy
@@ -67,13 +68,14 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
   let heartbeat: NodeJS.Timeout | undefined;
   try {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, strict: true, options: {
-      help: { type: 'boolean' }, stage: { type: 'string' }, target: { type: 'string' }, config: { type: 'string' }, image: { type: 'string' }, 'source-sha': { type: 'string' }, deployment: { type: 'string' }, 'restore-record': { type: 'string' }, attempt: { type: 'string' }, apply: { type: 'boolean' }, 'release-dir': { type: 'string' }, 'change-reference': { type: 'string' }, 'duration-seconds': { type: 'string' }, 'max-duration-seconds': { type: 'string' }, rate: { type: 'string' }, 'max-requests': { type: 'string' }, 'work-dir': { type: 'string' },
+      help: { type: 'boolean' }, 'rehearse-response-loss': { type: 'boolean' }, stage: { type: 'string' }, target: { type: 'string' }, config: { type: 'string' }, image: { type: 'string' }, 'source-sha': { type: 'string' }, deployment: { type: 'string' }, 'restore-record': { type: 'string' }, attempt: { type: 'string' }, apply: { type: 'boolean' }, 'release-dir': { type: 'string' }, 'change-reference': { type: 'string' }, 'duration-seconds': { type: 'string' }, 'max-duration-seconds': { type: 'string' }, rate: { type: 'string' }, 'max-requests': { type: 'string' }, 'work-dir': { type: 'string' },
     } });
     if (values.help) { stdout(help); return 0; }
     if (positionals.length !== 1) throw new LabError('COMMAND_REQUIRED', 'Choose one command. Run npm run lab -- --help.', 'failed');
     const operation = z.enum(['doctor', 'verify', 'deploy', 'observe', 'rollback', 'reconcile', 'rehearse-recovery', 'expose', 'disable', 'observe-exposure', 'reconcile-exposure']).parse(positionals[0]);
     const targetName = z.enum(['staging', 'live']).parse(values.target);
     if (operation === 'rehearse-recovery' && (targetName !== 'staging' || !values.apply)) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Recovery rehearsals require staging and --apply in the protected workflow.');
+    if (values['rehearse-response-loss'] && (operation !== 'expose' || targetName !== 'staging' || values.stage !== 'internal' || !values.apply)) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Flag recovery rehearsals require expose --target staging --stage internal --apply.');
     if (operation === 'verify') {
       if (values.apply) throw new LabError('VERIFY_IS_READ_ONLY', 'Verify cannot apply changes. Dispatch the protected Operate lab workflow.');
       if (Object.keys(values).some(name => !['target', 'release-dir'].includes(name))) throw new LabError('VERIFY_IS_READ_ONLY', 'Verify accepts only --target and --release-dir.');
@@ -86,7 +88,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     }
     const isExposure = ['expose', 'disable', 'observe-exposure', 'reconcile-exposure'].includes(operation);
     if (isExposure) {
-      const allowed = ['target', 'work-dir', ...(operation === 'reconcile-exposure' ? ['attempt'] : ['release-dir']), ...(['expose', 'disable'].includes(operation) ? ['apply'] : []), ...(operation === 'expose' ? ['stage'] : [])];
+      const allowed = ['target', 'work-dir', ...(operation === 'reconcile-exposure' ? ['attempt'] : ['release-dir']), ...(['expose', 'disable'].includes(operation) ? ['apply'] : []), ...(operation === 'expose' ? ['stage', 'rehearse-response-loss'] : [])];
       if (Object.keys(values).some(key => !allowed.includes(key))) throw new LabError('INVALID_EXPOSURE_ARGUMENT', 'Exposure accepts only its documented request, stage and work-directory arguments.');
     } else if (values.stage !== undefined) throw new LabError('INVALID_ARGUMENT', '--stage applies only to expose.');
     const raw = values.config ? await readFile(values.config, 'utf8') : environment.LAB_CONFIG_JSON ?? await readFile('config/lab.json', 'utf8');
@@ -103,11 +105,11 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     }
     const flags = new LaunchDarkly(environment.LD_READ_TOKEN ?? '', isExposure && values.apply ? environment.LD_MANAGEMENT_TOKEN : undefined, targetName);
     if (isExposure) {
-      const exposure: ExposureOperation = { operation: operation as ExposureOperation['operation'], targetName, apply: values.apply ?? false };
+      const exposure: ExposureOperation = { operation: operation as ExposureOperation['operation'], targetName, apply: values.apply ?? false, rehearseResponseLoss: values['rehearse-response-loss'] ?? false };
       if (values['release-dir']) exposure.releaseDir = values['release-dir'];
       if (values.attempt) exposure.attempt = values.attempt;
       if (operation === 'expose') exposure.stage = z.enum(['internal', '5']).parse(values.stage);
-      const result = await executeExposure(exposure, hosting, flags, values['work-dir'] ?? 'work');
+      const result = await (exposure.rehearseResponseLoss ? rehearseExposureRecovery : executeExposure)(exposure, hosting, flags, values['work-dir'] ?? 'work');
       stdout(`${JSON.stringify(result)}\n`);
       return result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
     }

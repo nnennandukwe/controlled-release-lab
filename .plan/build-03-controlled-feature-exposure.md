@@ -475,3 +475,18 @@ Primary references checked during planning:
   differ from management tokens; custom/inline roles require entitlement.
 - [Percentage rollouts](https://launchdarkly.com/docs/home/releases/percentage-rollouts):
   stable context bucketing and finite-sample limits.
+
+## Implementation review addendum: repeatable provider recovery
+
+PR #8 finding `3948d823-c3a4-4625-8571-0b0f3b83aec3` identified that local REST
+seams alone cannot demonstrate LaunchDarkly response-loss recovery. The protected
+staging internal exposure therefore supports `rehearse_response_loss=true`, bound
+to an explicit request purpose. It submits one real conditional update, discards
+the successful response as a teaching fixture, and runs the ordinary read-only
+reconciliation path. Acceptance must retain the unknown original, released lock,
+unchanged original bytes, one update call, and signed real cohort observations.
+Live/5%/disable/preview fixtures are forbidden. This adds no provider resources,
+credentials, workflow trust roots or wider mutation authority. Execute it during
+hosted acceptance step 3, after the trusted-main implementation merge; retain the
+already observed live API 409 refusal separately. Local checks do not substitute
+for this protected hosted result.

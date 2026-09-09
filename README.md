@@ -94,6 +94,7 @@ node --import tsx tools/lab.ts doctor --target staging
 | `work/attempts/<uuid>/*-*.json` | Preserved intent, provider observations, and requests |
 | `work/attempts/<uuid>/record.json` and `.sha256` | Final record and checksum |
 | `work/rehearsals/attempts/<uuid>/` | Labeled response-loss fixture and automated recovery assertions |
+| `work/flag-rehearsals/attempts/<uuid>/` | Labeled staging flag response-loss and read-only recovery assertions |
 | `work/exposure/attempts/<uuid>/` | Immutable flag intents, raw cohort samples, and checksummed exposure records |
 | `work/locks/*.lock` | Environment ownership retained after an uncertain mutation |
 | GitHub `build-record-*` artifact | Published digest, producer identity, and signed image provenance |

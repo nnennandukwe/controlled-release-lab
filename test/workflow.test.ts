@@ -125,3 +125,8 @@ it('routes exposure inputs without weakening fixed sampling policy or forwarding
  expect(workflowArguments({LAB_OPERATION:'expose',LAB_TARGET:'live',LAB_STAGE:'5',LAB_APPLY:'true',LAB_RELEASE_DIR:'work/release/current',LAB_MAX_DURATION_SECONDS:'1',LAB_CHANGE_REFERENCE:'ignored'})).toEqual(['expose','--target','live','--stage','5','--apply','--release-dir','work/release/current']);
  expect(workflowArguments({LAB_OPERATION:'reconcile-exposure',LAB_TARGET:'live',LAB_ATTEMPT:'44444444-4444-4444-8444-444444444444'})).toEqual(['reconcile-exposure','--target','live','--attempt','44444444-4444-4444-8444-444444444444']);
 });
+
+it('forwards an explicitly requested staging flag response-loss rehearsal',()=>{
+ expect(workflowArguments({LAB_OPERATION:'expose',LAB_STAGE:'internal',LAB_TARGET:'staging',LAB_APPLY:'true',LAB_REHEARSE_RESPONSE_LOSS:'true',LAB_RELEASE_DIR:'work/release/current'}))
+  .toEqual(['expose','--target','staging','--stage','internal','--rehearse-response-loss','--apply','--release-dir','work/release/current']);
+});
