@@ -25,6 +25,17 @@ resource has been created by this plan.
   are separate operations with separate evidence. A successful PATCH or a
   requested audience percentage does not prove effective exposure.
 
+## Execution status
+
+Implemented in PR #8 with hosted-execution fixes in PRs #9 and #10. September 9,
+2026 (UTC) acceptance verified the published E image, staging provider/flag
+response-loss recovery, fresh both-variation promotion proof, live internal and
+5% exposure, refusal checks, and independent disablement on the same live
+deployment. Both environments finish off with no unresolved locks. See the
+[Build 3 closeout](../docs/build-03-closeout.md) for exact subjects, signed runs,
+measurements, preserved history, and the Qodo sampling-policy label discrepancy.
+The design below remains the pre-execution plan; the closeout records results.
+
 ## Skills To Use
 
 | Execution stage | Skill | Responsibility and evidence |

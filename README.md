@@ -15,10 +15,11 @@ and traffic are synthetic. Build 1's hosted baseline and application recovery
 were exercised on Railway; see the [rehearsal and evidence](docs/hosted-rehearsal.md)
 and [live catalog](https://catalog-live.up.railway.app). Build 2
 [passed signed C-to-D promotion and native recovery](docs/build-02-closeout.md),
-including its final CI-only credential handoff. Build 3 adds controlled internal and
-5% LaunchDarkly exposure, measured holds, and feature disablement on the same
-deployment. Hosted Build 3 acceptance is pending; the seeded regression and
-completed repaired release remain Build 4. Local checks alone do not complete the release exercise.
+including its final CI-only credential handoff. Build 3
+[passed hosted internal and 5% exposure, refusal checks, and feature disablement](docs/build-03-closeout.md)
+on the same E deployment. Both environments finish with exposure off; the closeout
+discloses the remaining Qodo sampling-policy label. The seeded regression and
+completed repaired release remain Build 4.
 
 ## Run locally
 
