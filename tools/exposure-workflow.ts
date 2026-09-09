@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { currentOperator, download, jsonFile, attachments, output } from './release-workflow.js';
+import { currentOperator, download, jsonFile, attachments, output } from './release-artifacts.js';
 import { policy, policyDigest, requestValidity, controlledDeploymentEvidenceSchema } from './promotion.js';
 import { changeReferenceSchema, LabError } from './evidence.js';
 import { LaunchDarkly, desiredFlagState } from './launchdarkly.js';
