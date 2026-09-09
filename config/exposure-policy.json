@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "projectKey": "default",
   "flagKey": "catalog-ranked-search",
   "environments": {
@@ -9,7 +9,9 @@
   "stages": [
     "off",
     "internal",
-    "5"
+    "5",
+    "25",
+    "100"
   ],
   "roster": {
     "version": 1,
@@ -52,5 +54,11 @@
         "sel": "8c8863846804465486af55f1b2f78ff7"
       }
     }
-  }
+  },
+  "minimumQueryPersonas": 20,
+  "queries": [
+    "keyboard",
+    "compact",
+    "workspace"
+  ]
 }

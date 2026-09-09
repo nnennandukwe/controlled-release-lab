@@ -3,8 +3,9 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, releaseReconciledLock, targetSchema } from './evidence.js';
 import { flagSnapshotSchema, desiredFlagState, flagStateSchema, validateFlagSnapshot, type FlagProvider } from './launchdarkly.js';
-import { exposurePolicyDigest, rosterDigest, exposurePolicy } from './exposure-observe.js';
-import { featureProofSchema, assertServing, checkFeatureProof, measureFeatureProof, type FeatureSubject } from './feature-proof.js';
+import { predecessor, stageSchema, type ExposureStage } from './launchdarkly.js';
+import { exposurePolicyDigest, rosterDigest, originalQueryBaselines, type QueryBaseline, exposurePolicy } from './exposure-observe.js';
+import { featureProofSchema, legacyFeatureProofSchema, assertServing, checkFeatureProof, measureFeatureProof, type FeatureSubject } from './feature-proof.js';
 import { boundedFile, preserveFile, policy, policyDigest, producerSchema, protectedRun, assertProducer, controlledDeploymentEvidenceSchema } from './promotion.js';
 import { verifyArtifact, repository } from './attestation.js';
 import { sha256 } from './setup-verifier.js';
@@ -13,7 +14,7 @@ import type { Hosting } from './railway.js';
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const attachments = ['image.bundle.jsonl', 'deployment-evidence.json', 'deployment.bundle.jsonl', 'prior-exposure.json', 'prior.bundle.jsonl'] as const;
 export const exposureRequestSchema = z.object({
-  schemaVersion: z.literal(1), kind: z.literal('exposure-request'), purpose: z.enum(['release', 'response-loss-rehearsal']).default('release'), operation: z.enum(['expose', 'disable', 'observe-exposure']), stage: z.enum(['off', 'internal', '5']),
+  schemaVersion: z.literal(1), kind: z.literal('exposure-request'), purpose: z.enum(['release', 'response-loss-rehearsal']).default('release'), operation: z.enum(['expose', 'disable', 'observe-exposure']), stage: stageSchema,
   targetName: z.enum(['staging', 'live']), target: targetSchema, image: imageSchema, sourceSha: z.string().regex(/^[a-f0-9]{40}$/), deploymentId: z.string().uuid(),
   configurationFingerprint: digest, policyDigest: digest, exposurePolicyDigest: digest, rosterDigest: digest,
   build: producerSchema, operator: producerSchema, before: flagSnapshotSchema, desired: flagStateSchema,
@@ -30,6 +31,9 @@ export type ExposureRecord = z.infer<typeof exposureRecordSchema>;
 export const exposureEvidenceSchema = z.object({ schemaVersion: z.literal(1), kind: z.literal('exposure-evidence'), record: exposureRecordSchema,
   context: z.object({ operator: producerSchema, policyDigest: digest, exposurePolicyDigest: digest, rosterDigest: digest, requestDigest: digest, notEvaluated: z.array(z.string()).min(1) }).strict(),
 }).strict();
+export const legacyExposureEvidenceSchema = exposureEvidenceSchema.extend({ record: exposureRecordSchema.extend({ featureProof: legacyFeatureProofSchema.nullable() }) }).strict();
+/** Inspection only. Current eligibility still requires the current feature proof and policy. */
+export const exposureHistorySchema = z.union([exposureEvidenceSchema, legacyExposureEvidenceSchema]);
 export const serializeExposure = (input: ExposureRequest) => `${JSON.stringify(exposureRequestSchema.parse(input), null, 2)}\n`;
 export const exposureSubject = (request: ExposureRequest): FeatureSubject => ({ targetName: request.targetName, target: request.target, image: request.image, sourceSha: request.sourceSha, deploymentId: request.deploymentId, configurationFingerprint: request.configurationFingerprint });
 
@@ -70,29 +74,48 @@ export async function verifyExposureRelease(directory: string, allowExpired = fa
   await assertProducer(baseline.context.operator, 'operate.yml');
   if (baseline.context.policyDigest !== policyDigest || fingerprint(baseline.context.build) !== fingerprint(request.build) || baseline.record.outcome !== 'verified' || baseline.record.deploymentId !== request.deploymentId || baseline.record.requestedImage !== request.image || baseline.record.requestedSourceSha !== request.sourceSha) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'Signed deployment baseline belongs to another release.');
   // A retained off baseline permits stopping an unhealthy exposure. Expansion uses
-  // a separate fresh internal proof; disable does not require healthy treatment.
+  // a separate fresh predecessor proof; disable does not require healthy treatment.
   const checkedBaseline = checkFeatureProof(baseline.featureProof, exposureSubject(request), 'off', !allowExpired && request.operation === 'expose' && request.stage === 'internal');
   const baselineP95Ms = checkedBaseline.measurement.p95Ms!;
-  if (request.operation === 'expose' && request.stage === '5') {
+  const baselineQueryP95Ms = originalQueryBaselines(checkedBaseline.measurement);
+  let priorProof: ReturnType<typeof checkExposureEvidence> | undefined;
+  if (request.operation === 'expose' && request.stage !== 'internal' && request.stage !== 'off') {
     const priorFile = required('prior-exposure.json');
     const priorCandidate = z.object({ context: z.object({ operator: producerSchema }) }).parse(JSON.parse(priorFile.bytes.toString()));
     const priorSigned = await verifyArtifact({ subject: priorFile.path, bundle: required('prior.bundle.jsonl').path, workflow: 'operate.yml', sourceSha: priorCandidate.context.operator.sourceSha });
     const prior = exposureEvidenceSchema.parse(JSON.parse(priorFile.bytes.toString()));
     if (priorSigned.runId !== prior.context.operator.runId || priorSigned.runAttempt !== prior.context.operator.runAttempt) throw new LabError('PROVENANCE_REJECTED', 'Exposure evidence signer differs from its producer.');
     await assertProducer(prior.context.operator, 'operate.yml');
-    checkExposureEvidence(prior, exposureSubject(request), baselineP95Ms, !allowExpired);
-    if (prior.record.request.operation !== 'expose' || !['expose', 'reconcile-exposure'].includes(prior.record.operation)) throw new LabError('EXPOSURE_AUTHORITY_REQUIRED', 'Expansion requires evidence of an authorized internal exposure, not a read-only observation.');
-    if (prior.record.featureProof?.after.stage !== 'internal' || prior.record.featureProof.after.digest !== request.before.digest) throw new LabError('EXPOSURE_PROOF_STALE', 'Expansion requires current verified internal exposure evidence.');
+    priorProof = checkExposureEvidence(prior, exposureSubject(request), baselineP95Ms, !allowExpired, baselineQueryP95Ms);
+    if (prior.record.request.operation !== 'expose' || !['expose', 'reconcile-exposure'].includes(prior.record.operation)) throw new LabError('EXPOSURE_AUTHORITY_REQUIRED', 'Expansion requires evidence of an authorized predecessor exposure, not a read-only observation.');
+    if (prior.record.featureProof?.after.stage !== predecessor[request.stage] || prior.record.featureProof.after.digest !== request.before.digest) throw new LabError('EXPOSURE_PROOF_STALE', 'Expansion requires current verified immediate predecessor exposure evidence.');
   }
-  return { request, requestDigest: sha256(manifest.bytes), baselineP95Ms, manifest, files };
+  return { request, requestDigest: sha256(manifest.bytes), baselineP95Ms, baselineQueryP95Ms, priorProof, manifest, files };
 }
-export function checkExposureEvidence(input: unknown, subject: FeatureSubject, baselineP95Ms: number, fresh = true) {
+export function checkExposureEvidence(input: unknown, subject: FeatureSubject, baselineP95Ms: number, fresh = true, baselineQueryP95Ms?: QueryBaseline) {
   const evidence = exposureEvidenceSchema.parse(input), record = evidence.record;
   if (record.outcome !== 'verified' || !record.finishedAt || !record.featureProof || evidence.context.policyDigest !== policyDigest || evidence.context.exposurePolicyDigest !== exposurePolicyDigest || evidence.context.rosterDigest !== rosterDigest
     || evidence.context.requestDigest !== record.requestDigest || record.requestDigest !== sha256(serializeExposure(record.request)) || fingerprint(record.featureProof.subject) !== fingerprint(subject)
-    || record.featureProof.baselineP95Ms !== baselineP95Ms) throw new LabError('EXPOSURE_PROOF_REJECTED', 'Exposure evidence is incomplete or belongs to another request, policy or baseline.');
+    || record.featureProof.baselineP95Ms !== baselineP95Ms || (baselineQueryP95Ms && fingerprint(record.featureProof.baselineQueryP95Ms) !== fingerprint(baselineQueryP95Ms))) throw new LabError('EXPOSURE_PROOF_REJECTED', 'Exposure evidence is incomplete or belongs to another request, policy or baseline.');
   if (fingerprint(exposureSubject(record.request)) !== fingerprint(subject) || record.featureProof.after.stage !== record.request.stage || !matchesDesired(record.featureProof.after.state, record.request.desired)) throw new LabError('EXPOSURE_PROOF_REJECTED', 'Observed flag state differs from the evidence request.');
   return checkFeatureProof(record.featureProof, subject, 'any', fresh);
+}
+
+/** Authenticate the terminal proof even when no later stage will consume it. */
+export async function verifyExposureObservation(directory: string, targetName: 'staging' | 'live') {
+  const file = await boundedFile(directory, 'exposure-evidence.json'), bundle = await boundedFile(directory, 'evidence.bundle.jsonl');
+  const candidate = z.object({ context: z.object({ operator: producerSchema }) }).parse(JSON.parse(file.bytes.toString()));
+  const signed = await verifyArtifact({ subject: file.path, bundle: bundle.path, workflow: 'operate.yml', sourceSha: candidate.context.operator.sourceSha });
+  if (signed.runId !== candidate.context.operator.runId || signed.runAttempt !== candidate.context.operator.runAttempt) throw new LabError('PROVENANCE_REJECTED', 'Exposure signer differs from its exact producer attempt.');
+  await assertProducer(candidate.context.operator, 'operate.yml');
+  const envelope = exposureEvidenceSchema.parse(JSON.parse(file.bytes.toString())), record = envelope.record;
+  if (record.request.targetName !== targetName || !record.featureProof) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'Choose the complete signed exposure proof for this target.');
+  // The original request authorized its earlier effect. Verification does not
+  // reuse that authority; the completed measurement itself must still be fresh.
+  checkExposureRequest({ ...record.request, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1000).toISOString() });
+  const proof = checkExposureEvidence(envelope, exposureSubject(record.request), record.featureProof.baselineP95Ms);
+  const completionEvidence = proof.after.stage === '100' && record.request.operation === 'expose' && ['expose', 'reconcile-exposure'].includes(record.operation);
+  return { envelope, proof, completionEvidence, evidenceDigest: sha256(file.bytes), authorized: false as const };
 }
 async function preserveRelease(directory: string, verified: Awaited<ReturnType<typeof verifyExposureRelease>>) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -118,7 +141,7 @@ async function loadExposureAttempt(root: string, attempt: string) {
   if (!intent) throw new LabError('MISSING_EXPOSURE_INTENT', 'Restore the original durable exposure intent before reconciliation.');
   return { directory, record: exposureRecordSchema.parse(JSON.parse(await readFile(join(directory, intent), 'utf8')).observation) };
 }
-export type ExposureOperation = { operation: 'expose' | 'disable' | 'observe-exposure' | 'reconcile-exposure'; targetName: 'staging' | 'live'; releaseDir?: string; stage?: 'internal' | '5'; apply?: boolean; attempt?: string; rehearseResponseLoss?: boolean };
+export type ExposureOperation = { operation: 'expose' | 'disable' | 'observe-exposure' | 'reconcile-exposure'; targetName: 'staging' | 'live'; releaseDir?: string; stage?: Exclude<ExposureStage, 'off'>; apply?: boolean; attempt?: string; rehearseResponseLoss?: boolean };
 export async function executeExposure(input: ExposureOperation, hosting: Hosting, flags: FlagProvider, root: string, transport: typeof fetch = fetch) {
   const mutating = input.operation === 'expose' || input.operation === 'disable';
   if (input.apply && !mutating) throw new LabError('INVALID_EXPOSURE_ARGUMENT', 'Observation and reconciliation are read-only.');
@@ -165,22 +188,23 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
     }
     const actual = await flags.snapshot();
     if (!matchesDesired(actual.state, request.desired) || actual.stage !== request.stage) throw new LabError('FLAG_NOT_CONVERGED', 'Provider state has not reached the requested definition. Reconcile without repeating PATCH.', 'unknown_outcome');
-    record.featureProof = await measureFeatureProof(hosting, flags, subject, verified.baselineP95Ms, sample => journal.append('request', sample), transport);
+    record.featureProof = await measureFeatureProof(hosting, flags, subject, verified.baselineP95Ms, sample => journal.append('request', sample), transport, verified.baselineQueryP95Ms);
     await journal.append('feature-proof', record.featureProof);
     if (record.featureProof.before.digest !== actual.digest) throw new LabError('FLAG_STATE_CHANGED', 'Flag changed before the observation began.');
     assertServing(record.featureProof.providerAfter as Awaited<ReturnType<Hosting['snapshot']>>, subject);
     measuredStableState = record.featureProof.before.digest === record.featureProof.after.digest && fingerprint(record.featureProof.providerBefore) === fingerprint(record.featureProof.providerAfter);
-    checkFeatureProof(record.featureProof, subject, 'any');
+    const checked = checkFeatureProof(record.featureProof, subject, 'any');
+    if (verified.priorProof && request.stage !== 'internal') assertTreatmentRetained(verified.priorProof, checked);
     record.outcome = 'verified';
     record.recoveryInstruction = prior ? 'Desired provider state and sampled behavior observed. This does not attribute the change to the original PATCH.' : '';
   } catch (error) {
     const failure = error instanceof LabError ? error : new LabError('EXPOSURE_EXECUTION_ERROR', 'Exposure execution or persistence failed. Inspect retained evidence.');
-    record.outcome = (effectAttempted || prior) && !(input.operation === 'expose' && measuredStableState && ['EXPOSURE_HOLD', 'EXPOSURE_WINDOW'].includes(failure.code)) ? 'unknown_outcome' : failure.outcome;
-    record.reasonCodes = [failure.code]; record.recoveryInstruction = `${failure.message}${record.outcome === 'unknown_outcome' ? ` Reconcile exposure attempt ${prior?.record.attemptId ?? journal.attemptId}.` : ''}`;
+    record.outcome = (effectAttempted || prior) && !(measuredStableState && ['EXPOSURE_HOLD', 'EXPOSURE_WINDOW'].includes(failure.code)) ? 'unknown_outcome' : failure.outcome;
+    record.reasonCodes = [failure.code]; record.recoveryInstruction = `${failure.message}${record.outcome === 'blocked' && measuredStableState ? ' Desired flag state is known but health is not verified. Independently authorize disable; no expansion evidence was issued.' : ''}${record.outcome === 'unknown_outcome' ? ` Reconcile exposure attempt ${prior?.record.attemptId ?? journal.attemptId}.` : ''}`;
   }
   try {
     record.finishedAt = new Date().toISOString(); const recordPath = await saveExposureRecord(journal, record); saved = true;
-    if (prior && record.outcome === 'verified') await releaseReconciledLock(root, request.target, prior.record.attemptId);
+    if (prior && (record.outcome === 'verified' || record.outcome === 'blocked' && measuredStableState)) await releaseReconciledLock(root, request.target, prior.record.attemptId);
     return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, attemptId: journal.attemptId, recordPath };
   } finally { if (release && (!effectAttempted || saved && record.outcome !== 'unknown_outcome')) await release(); }
 }
@@ -191,7 +215,12 @@ export function matchesDesired(actual: z.infer<typeof flagStateSchema>, desired:
 }
 export function createExposureEnvelope(record: ExposureRecord, operator: z.infer<typeof producerSchema>) {
   if (record.outcome !== 'verified' || !record.featureProof) throw new LabError('EXPOSURE_HOLD', 'Only a complete verified observation can become signed eligibility evidence.');
-  const envelope = exposureEvidenceSchema.parse({ schemaVersion: 1, kind: 'exposure-evidence', record, context: { operator, policyDigest, exposurePolicyDigest, rosterDigest, requestDigest: record.requestDigest, notEvaluated: ['Production identities', 'Customer impact', 'Unobserved clients and in-flight effects'] } });
+  const envelope = exposureEvidenceSchema.parse({ schemaVersion: 1, kind: 'exposure-evidence', record, context: { operator, policyDigest, exposurePolicyDigest, rosterDigest, requestDigest: record.requestDigest, notEvaluated: ['Production identities', 'Customer impact', 'Unobserved clients and in-flight effects', ...(record.featureProof.after.stage === 'internal' ? ['Ranked workspace latency: internal covers keyboard and compact only'] : [])] } });
   checkExposureEvidence(envelope, exposureSubject(record.request), record.featureProof.baselineP95Ms);
   return envelope;
+}
+
+function assertTreatmentRetained(prior: ReturnType<typeof checkFeatureProof>, current: ReturnType<typeof checkFeatureProof>) {
+  const treatment = new Set(current.measurement.samples.filter(sample => sample.evaluation?.value).map(sample => sample.contextKey));
+  if (prior.measurement.samples.some(sample => sample.evaluation?.value && !treatment.has(sample.contextKey))) throw new LabError('EXPOSURE_HOLD', 'Previously treated personas lost treatment. Hold expansion and inspect targeting identity.');
 }

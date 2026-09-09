@@ -1,10 +1,12 @@
+import { createExposureDiagnostic } from './exposure-diagnostic.js';
+import { fingerprint } from './evidence.js';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { currentOperator, download, jsonFile, attachments, output } from './release-artifacts.js';
-import { policy, policyDigest, requestValidity, controlledDeploymentEvidenceSchema } from './promotion.js';
+import { policy, policyDigest, requestValidity, controlledDeploymentEvidenceSchema, producerSchema } from './promotion.js';
 import { changeReferenceSchema, LabError } from './evidence.js';
-import { LaunchDarkly, desiredFlagState } from './launchdarkly.js';
+import { LaunchDarkly, desiredFlagState, enabledStageSchema } from './launchdarkly.js';
 import { exposurePolicyDigest, rosterDigest } from './exposure-observe.js';
 import { exposureRequestSchema, verifyExposureRelease, loadExposureRecord, createExposureEnvelope } from './exposure.js';
 import { sha256 } from './setup-verifier.js';
@@ -28,9 +30,9 @@ export async function resolveExposure(environment: NodeJS.ProcessEnv) {
   await copyFile('artifacts/exposure-build/image.bundle.jsonl', join(base, 'image.bundle.jsonl'));
   const flags = new LaunchDarkly(environment.LD_READ_TOKEN ?? '', undefined, targetName); await flags.assertScope();
   const before = await flags.snapshot();
-  const stage = operation === 'disable' ? 'off' : operation === 'expose' ? z.enum(['internal', '5']).parse(environment.LAB_STAGE) : before.stage;
+  const stage = operation === 'disable' ? 'off' : operation === 'expose' ? enabledStageSchema.parse(environment.LAB_STAGE) : before.stage;
   const names = ['image.bundle.jsonl', 'deployment-evidence.json', 'deployment.bundle.jsonl'];
-  if (operation === 'expose' && stage === '5') {
+  if (operation === 'expose' && stage !== 'internal') {
     const priorRun = numeric(environment.LAB_EXPOSURE_RUN), priorAttempt = numeric(environment.LAB_EXPOSURE_ATTEMPT);
     await download(priorRun, `lab-proof-${targetName}-${priorRun}-${priorAttempt}`, 'artifacts/prior-exposure');
     await copyFile('artifacts/prior-exposure/exposure-evidence.json', join(base, 'prior-exposure.json'));
@@ -55,12 +57,17 @@ export async function finalizeExposure() {
   await verifyExposureRelease(directory);
 }
 export async function sealExposure() {
-  const result = z.object({ outcome: z.string(), recordPath: z.string().optional() }).parse(JSON.parse(await readFile('work/last-result.json', 'utf8')));
-  if (result.outcome !== 'verified' || !result.recordPath) { await output('sign', 'false'); return; }
+  const result = z.object({ outcome: z.string(), recordPath: z.string().optional(), operator: producerSchema, operation: z.string() }).parse(JSON.parse(await readFile('work/last-result.json', 'utf8')));
+  if (fingerprint(result.operator) !== fingerprint(currentOperator()) || result.operation !== process.env.LAB_OPERATION) throw new LabError('STALE_OPERATION_RESULT', 'The result belongs to another workflow invocation; no evidence was sealed.');
+  if (!['verified', 'blocked'].includes(result.outcome) || !result.recordPath) { await output('sign', 'false'); return; }
   const record = await loadExposureRecord(result.recordPath);
-  // Reconciliation proves a new observation of the original desired state. Its
-  // producer is this signing run; it does not relabel the original authorization.
-  const envelope = createExposureEnvelope(record, currentOperator());
-  await jsonFile('artifacts/observation/exposure-evidence.json', envelope);
-  await output('subject_path', 'artifacts/observation/exposure-evidence.json'); await output('sign', 'true');
+  if (record.outcome !== result.outcome || record.request.targetName !== process.env.LAB_TARGET) throw new LabError('STALE_OPERATION_RESULT', 'Result and record disagree about the observed operation.');
+  if (record.operation !== result.operation && !(process.env.LAB_REHEARSE_RESPONSE_LOSS === 'true' && result.operation === 'expose' && record.operation === 'reconcile-exposure' && record.request.purpose === 'response-loss-rehearsal')) throw new LabError('STALE_OPERATION_RESULT', 'Result and record operations disagree.');
+  if (!record.featureProof) { await output('sign', 'false'); return; }
+  const diagnostic = record.outcome === 'blocked';
+  const envelope = diagnostic ? createExposureDiagnostic(record, currentOperator()) : createExposureEnvelope(record, currentOperator());
+  const path = `artifacts/observation/exposure-${diagnostic ? 'diagnostic' : 'evidence'}.json`;
+  await jsonFile(path, envelope);
+  await output('artifact_kind', diagnostic ? 'diagnostic' : 'proof');
+  await output('subject_path', path); await output('sign', 'true');
 }

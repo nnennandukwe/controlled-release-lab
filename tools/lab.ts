@@ -1,3 +1,4 @@
+import { verifyExposureDiagnostic } from './exposure-diagnostic.js';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -6,32 +7,34 @@ import { z } from 'zod';
 import { LabError, targetSchema } from './evidence.js';
 import { execute, type Operation } from './operations.js';
 import { rehearseRecovery } from './recovery-rehearsal.js';
-import { executeExposure, type ExposureOperation } from './exposure.js';
+import { executeExposure, verifyExposureObservation, type ExposureOperation } from './exposure.js';
 import { rehearseExposureRecovery } from './exposure-rehearsal.js';
-import { LaunchDarkly } from './launchdarkly.js';
+import { LaunchDarkly, enabledStageSchema } from './launchdarkly.js';
 import { Railway } from './railway.js';
 import { checkRequest, releaseRequestSchema, verifyRelease } from './promotion.js';
 import { fingerprint } from './evidence.js';
 
 export const help = `Controlled Release Lab - authenticated promotion and recovery
 
-Usage: npm run lab -- <doctor|verify|deploy|observe|rollback|reconcile|rehearse-recovery|expose|disable|observe-exposure|reconcile-exposure> --target <staging|live> [options]
+Usage: npm run lab -- <doctor|verify|verify-exposure|verify-diagnostic|deploy|observe|rollback|reconcile|rehearse-recovery|expose|disable|observe-exposure|reconcile-exposure> --target <staging|live> [options]
 
   doctor       Read provider access, source, and deployment configuration.
   verify       Verify signed release evidence; does not authorize mutation.
+  verify-exposure    Verify a fresh signed exposure proof, including 100% completion.
+  verify-diagnostic  Authenticate blocked exposure evidence; never authorizes release.
   deploy       Preview a digest deployment; add --apply to execute it.
   observe      Collect a bounded live sample and preserve the raw observations.
   rollback     Preview earlier recovery, or apply an authenticated --release-dir; then reconcile.
   rehearse-recovery  Deploy in staging, discard the response, assert read-only recovery.
   reconcile    Resolve an uncertain operation from its --attempt UUID, without mutation.
 
-  expose       Preview internal or 5% exposure; protected --apply changes the flag.
+  expose       Preview internal, 5%, 25% or 100% exposure; protected --apply changes the flag.
   disable      Independently authorize flag off and verify original behavior.
   observe-exposure    Measure current cohorts without changing the flag.
   reconcile-exposure Observe an uncertain flag operation without repeating PATCH.
 
 Options:
-  --rehearse-response-loss   Staging internal --apply only; discard the flag response and reconcile\n  --stage internal|5         Exposure stage (expose only)
+  --rehearse-response-loss   Staging internal --apply only; discard the flag response and reconcile\n  --stage internal|5|25|100         Exposure stage (expose only)
   --config PATH             Target map (default config/lab.json; LAB_CONFIG_JSON also supported)
   --release-dir PATH        Immutable request and signed attachments; required for protected apply
   --image IMAGE@sha256:...   Immutable GHCR image for deploy
@@ -39,7 +42,7 @@ Options:
   --deployment UUID          Earlier Railway deployment for rollback
   --restore-record PATH      Verified earlier record.json and its .sha256 file
   --attempt UUID             Original uncertain attempt under the work directory
-  --apply                    Execute deploy/rollback/staging rehearsal inside the protected GitHub workflow
+  --apply                    Execute deployment, rollback, rehearsal or flag change in the protected workflow
   --change-reference REF     Change identifier; protected apply uses the resolved request value
   --duration-seconds N       Minimum observation window, 0.1-300 seconds (default 60)
   --max-duration-seconds N   Total traffic deadline, 0.1-300 seconds (default 300)
@@ -51,6 +54,9 @@ Options:
 Examples:
   npm run lab -- doctor --target staging
   npm run lab -- verify --target live --release-dir work/release/current
+  npm run lab -- verify-exposure --target live --release-dir artifacts/completed-exposure
+  npm run lab -- verify-diagnostic --target live --release-dir artifacts/failed-exposure
+  npm run lab -- expose --target live --stage 25 --release-dir work/release/current
   npm run lab -- observe --target staging --duration-seconds 60 --rate 2 --max-requests 120
   npm run lab -- deploy --target staging --image 'ghcr.io/owner/lab@sha256:replace-with-64-hex-digest' --source-sha 'replace-with-40-hex-sha'
   npm run lab -- rollback --target live --deployment 'replace-with-deployment-uuid' --restore-record 'work/attempts/replace-with-attempt-uuid/record.json'
@@ -60,7 +66,8 @@ Exposure observations use fixed policy budgets; duration/rate overrides are reje
 Flag reads use LD_READ_TOKEN; protected flag writes also require LD_MANAGEMENT_TOKEN.
 Credentials: RAILWAY_PROJECT_TOKEN, scoped to the selected environment. Never pass it as an argument.
 Local deploy/rollback are previews. Apply requires authenticated GitHub OIDC and protected environment approval.
-Output: JSON on stdout, progress on stderr. Exit 0 verified/preview; 1 invalid/failed; 2 blocked/unknown.
+Output: JSON on stdout, progress on stderr. Exit 0 verified/preview/authenticated diagnostic; 1 invalid/failed; 2 blocked/unknown.
+Diagnostic authentication always reports authorized=false and cannot establish release eligibility.
 Railway rollback returns acknowledgment only: apply exits 2 and retains its lock until reconcile verifies recovery.
 `;
 
@@ -72,15 +79,27 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     } });
     if (values.help) { stdout(help); return 0; }
     if (positionals.length !== 1) throw new LabError('COMMAND_REQUIRED', 'Choose one command. Run npm run lab -- --help.', 'failed');
-    const operation = z.enum(['doctor', 'verify', 'deploy', 'observe', 'rollback', 'reconcile', 'rehearse-recovery', 'expose', 'disable', 'observe-exposure', 'reconcile-exposure']).parse(positionals[0]);
+    const operation = z.enum(['doctor', 'verify', 'verify-exposure', 'verify-diagnostic', 'deploy', 'observe', 'rollback', 'reconcile', 'rehearse-recovery', 'expose', 'disable', 'observe-exposure', 'reconcile-exposure']).parse(positionals[0]);
     const targetName = z.enum(['staging', 'live']).parse(values.target);
     if (operation === 'rehearse-recovery' && (targetName !== 'staging' || !values.apply)) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Recovery rehearsals require staging and --apply in the protected workflow.');
     if (values['rehearse-response-loss'] && (operation !== 'expose' || targetName !== 'staging' || values.stage !== 'internal' || !values.apply)) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Flag recovery rehearsals require expose --target staging --stage internal --apply.');
-    if (operation === 'verify') {
+    if (operation === 'verify' || operation === 'verify-exposure' || operation === 'verify-diagnostic') {
       if (values.apply) throw new LabError('VERIFY_IS_READ_ONLY', 'Verify cannot apply changes. Dispatch the protected Operate lab workflow.');
       if (Object.keys(values).some(name => !['target', 'release-dir'].includes(name))) throw new LabError('VERIFY_IS_READ_ONLY', 'Verify accepts only --target and --release-dir.');
       stderr(`verify: authenticating ${targetName} evidence; this does not authorize mutation\n`);
       heartbeat = setInterval(() => stderr('verify: waiting for bounded provenance checks...\n'), 10000);
+      if (operation === 'verify-exposure') {
+        const verified = await verifyExposureObservation(z.string().min(1).parse(values['release-dir']), targetName);
+        const { samples, ...assessment } = verified.proof.measurement;
+        stdout(`${JSON.stringify({ outcome: 'exposure_verified', authorized: false, completionEvidence: verified.completionEvidence, evidenceDigest: verified.evidenceDigest, stage: verified.proof.after.stage, subject: verified.proof.subject, assessment })}\n`);
+        return 0;
+      }
+      if (operation === 'verify-diagnostic') {
+        const verified = await verifyExposureDiagnostic(z.string().min(1).parse(values['release-dir']), targetName);
+        const { samples, ...assessment } = verified.assessment;
+        stdout(`${JSON.stringify({ outcome: 'diagnostic_authenticated', authorized: false, evidenceDigest: verified.evidenceDigest, recordedOutcome: verified.envelope.record.outcome, assessment, target: targetName })}\n`);
+        return 0;
+      }
       const verified = await verifyRelease(z.string().min(1).parse(values['release-dir']));
       if (verified.request.targetName !== targetName) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'The request belongs to another target.');
       stdout(`${JSON.stringify({ outcome: 'evidence_verified', authorized: false, requestDigest: verified.requestDigest, image: verified.request.image, target: targetName })}\n`);
@@ -108,7 +127,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       const exposure: ExposureOperation = { operation: operation as ExposureOperation['operation'], targetName, apply: values.apply ?? false, rehearseResponseLoss: values['rehearse-response-loss'] ?? false };
       if (values['release-dir']) exposure.releaseDir = values['release-dir'];
       if (values.attempt) exposure.attempt = values.attempt;
-      if (operation === 'expose') exposure.stage = z.enum(['internal', '5']).parse(values.stage);
+      if (operation === 'expose') exposure.stage = enabledStageSchema.parse(values.stage);
       const result = await (exposure.rehearseResponseLoss ? rehearseExposureRecovery : executeExposure)(exposure, hosting, flags, values['work-dir'] ?? 'work');
       stdout(`${JSON.stringify(result)}\n`);
       return result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;

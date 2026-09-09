@@ -133,7 +133,9 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     }
     if (flags) {
       const subject = { sourceSha: record.requestedSourceSha!, deploymentId: record.deploymentId!, targetName: request.targetName, target: request.target, image: record.requestedImage!, configurationFingerprint: record.configurationFingerprint! };
-      const proof = await measureFeatureProof(hosting, flags, subject, measured.p95Ms!, sample => journal.append('feature-request', sample), transport);
+      // Bootstrap the off window with the independent deployment probe. Later
+      // exposures use this off window's actual per-query baselines.
+      const proof = await measureFeatureProof(hosting, flags, subject, measured.p95Ms!, sample => journal.append('feature-request', sample), transport, { keyboard: measured.p95Ms!, compact: measured.p95Ms!, workspace: measured.p95Ms! });
       record.observations.push({ phase: 'feature-proof', proof });
       if (proof.before.digest !== flagBefore!.digest) throw new LabError('FLAG_STATE_CHANGED', 'Flag state changed during the baseline window.');
       checkFeatureProof(proof, subject, request.operation === 'deploy' && request.targetName === 'live' ? 'off' : 'any');

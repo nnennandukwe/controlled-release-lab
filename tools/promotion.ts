@@ -7,7 +7,7 @@ import { imageSchema, targetSchema, recordSchema, changeReferenceSchema, fingerp
 import { verifyArtifact, repository, issuer } from './attestation.js';
 import { sha256 } from './setup-verifier.js';
 import { requireProtectedEnvironment } from './workflow-guard.js';
-import { featureProofSchema, checkFeatureProof, type FeatureProof } from './feature-proof.js';
+import { featureProofSchema, legacyFeatureProofSchema, checkFeatureProof, type FeatureProof } from './feature-proof.js';
 import { flagSnapshotSchema, validateFlagSnapshot, LaunchDarkly } from './launchdarkly.js';
 import type { Operation } from './operations.js';
 
@@ -50,8 +50,9 @@ export const deploymentEvidenceSchema = z.object({
     notEvaluated: z.array(z.string()).min(1),
   }).strict(),
 }).strict();
-export const controlledDeploymentEvidenceSchema = deploymentEvidenceSchema.extend({ schemaVersion: z.literal(2), featureProof: featureProofSchema }).strict();
-export const anyDeploymentEvidenceSchema = z.union([controlledDeploymentEvidenceSchema, deploymentEvidenceSchema]);
+export const legacyControlledDeploymentEvidenceSchema = deploymentEvidenceSchema.extend({ schemaVersion: z.literal(2), featureProof: legacyFeatureProofSchema }).strict();
+export const controlledDeploymentEvidenceSchema = deploymentEvidenceSchema.extend({ schemaVersion: z.literal(3), featureProof: featureProofSchema }).strict();
+export const anyDeploymentEvidenceSchema = z.union([controlledDeploymentEvidenceSchema, legacyControlledDeploymentEvidenceSchema, deploymentEvidenceSchema]);
 export type ControlledDeploymentEvidence = z.infer<typeof controlledDeploymentEvidenceSchema>;
 export type DeploymentEvidence = z.infer<typeof deploymentEvidenceSchema>;
 
@@ -169,7 +170,7 @@ export async function verifyRelease(directory: string) {
     const candidate = z.object({ context: z.object({ operator: producerSchema }) }).parse(JSON.parse(envelope.bytes.toString()));
     const verified = await verifyArtifact({ subject: envelope.path, bundle: required(`${prefix}.bundle.jsonl`).path, workflow: 'operate.yml', sourceSha: candidate.context.operator.sourceSha });
     const evidence = anyDeploymentEvidenceSchema.parse(JSON.parse(envelope.bytes.toString()));
-    if (evidence.schemaVersion !== 2) throw new LabError('FEATURE_PROOF_REQUIRED', 'Legacy deployment evidence remains readable history. Establish a compatible version 2 baseline under the current SDK and release policy before promotion or rollback.');
+    if (evidence.schemaVersion !== 3) throw new LabError('FEATURE_PROOF_REQUIRED', 'Legacy deployment evidence remains readable history. Establish a compatible version 3 baseline under the current SDK and release policy before promotion or rollback.');
     if (verified.runId !== evidence.context.operator.runId || verified.runAttempt !== evidence.context.operator.runAttempt) throw new LabError('PROVENANCE_REJECTED', 'Observation signer does not match its claimed run.');
     if (!recovery && (fingerprint(evidence.context.operator) !== fingerprint(request.operator)
       || evidence.context.requestDigest !== sha256(serializedRequest(stagingObservationRequest(request))))) throw new LabError('STAGING_REQUEST_MISMATCH', 'Staging proof belongs to another promotion request. Resolve and observe this exact request again.');
@@ -271,9 +272,9 @@ export function createEnvelope(record: EvidenceRecord, request: ReleaseRequest, 
   return envelope;
 }
 
-/** Version 2 adds current flag configuration and observed variation coverage. */
+/** Version 3 binds the current query-aware feature proof and exposure policy. */
 export function createControlledEnvelope(record: EvidenceRecord, request: ReleaseRequest, requestDigest: string, featureProof: FeatureProof): ControlledDeploymentEvidence {
   const baseline = createEnvelope(record, request, requestDigest);
   checkFeatureProof(featureProof, { sourceSha: request.sourceSha, deploymentId: record.deploymentId!, targetName: record.targetName, target: record.target, image: request.image, configurationFingerprint: request.configurationFingerprint }, 'any');
-  return controlledDeploymentEvidenceSchema.parse({ ...baseline, schemaVersion: 2, featureProof, context: { ...baseline.context, notEvaluated: ['Broad semantic correctness', 'Unobserved clients', 'Production identities and service-level objectives'] } });
+  return controlledDeploymentEvidenceSchema.parse({ ...baseline, schemaVersion: 3, featureProof, context: { ...baseline.context, notEvaluated: ['Broad semantic correctness', 'Unobserved clients', 'Production identities and service-level objectives', ...(featureProof.after.stage === 'internal' ? ['Ranked workspace latency: internal covers keyboard and compact only'] : [])] } });
 }

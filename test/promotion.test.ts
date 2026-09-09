@@ -62,7 +62,7 @@ async function fixture(target: 'staging' | 'live' = 'live') {
     const proof = evidence(); proof.context.operator = operator;
     proof.context.requestDigest = sha256(serializedRequest(stagingObservationRequest({ ...manifest, attachments: [{ name: 'image.bundle.jsonl', sha256: sha256(files['image.bundle.jsonl']!) }] })));
     const featureProof = featureFixture({ sourceSha: source, deploymentId: proof.record.deploymentId!, image, targetName: 'staging', target: policy.targets.staging, configurationFingerprint: policy.configurationFingerprints.staging }, 'internal');
-    files['staging-evidence.json'] = JSON.stringify({ ...proof, schemaVersion: 2, featureProof }); files['staging.bundle.jsonl'] = 'authenticated observation fixture';
+    files['staging-evidence.json'] = JSON.stringify({ ...proof, schemaVersion: 3, featureProof }); files['staging.bundle.jsonl'] = 'authenticated observation fixture';
   }
   for (const [name, bytes] of Object.entries(files)) { await writeFile(join(root, name), bytes); manifest.attachments.push({ name: name as ReleaseRequest['attachments'][number]['name'], sha256: sha256(bytes) }); }
   await writeFile(join(root, 'release-request.json'), JSON.stringify(manifest));
