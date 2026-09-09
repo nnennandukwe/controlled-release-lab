@@ -5,8 +5,12 @@
   <p class="eyebrow">CONTROLLED RELEASE LAB / CATALOG</p>
   <h1>A better workspace<br>starts with a search.</h1>
   <p class="intro">Explore a small, fictional catalog of everyday essentials.</p>
-  <form id="search-form"><label for="query">What are you looking for?</label><div class="search"><input id="query" name="q" type="search" required maxlength="100" value="keyboard" placeholder="Try keyboard, headphones, or travel"><button type="submit">Search</button></div></form>
+  <form id="search-form"><label for="query">What are you looking for?</label><div class="search"><input id="query" name="q" type="search" required maxlength="100" value="keyboard" placeholder="Try keyboard, headphones, or travel"><button type="submit">Search</button></div>
+    <label for="persona">Demonstration persona</label><select id="persona" name="context" aria-describedby="persona-help"><option value="anonymous">Anonymous / excluded</option><option value="internal-001">Internal 001</option><option value="eligible-0001">Eligible 0001</option><option value="eligible-0020">Eligible 0020</option><option value="excluded-001">Excluded 001</option></select>
+    <p id="persona-help">Synthetic, publicly selectable identities. These are not employee access controls.</p>
+  </form>
   <p id="status" role="status" aria-live="polite">Ready to search.</p>
+  <p id="variation" aria-live="polite"></p>
   <ul id="results" aria-label="Search results"></ul>
   <footer>Synthetic catalog. No purchases or personal data.</footer>
 </main></body></html>

@@ -1,0 +1,210 @@
+{
+  "name": "Catalog ranked search",
+  "kind": "boolean",
+  "description": "Controlled Release Lab synthetic cohort ranking; original behavior when off.",
+  "key": "catalog-ranked-search",
+  "_version": 1,
+  "creationDate": 1788979671515,
+  "includeInSnippet": false,
+  "clientSideAvailability": {
+    "usingMobileKey": false,
+    "usingEnvironmentId": false
+  },
+  "variations": [
+    {
+      "_id": "9c521c98-b289-4c2e-a998-d6a8d68b1350",
+      "value": false,
+      "valueHash": "68934a3e9455fa72420237eb05902327",
+      "name": "Original"
+    },
+    {
+      "_id": "6f1177da-d188-43c8-9b47-6391bb93e0bb",
+      "value": true,
+      "valueHash": "b326b5062b2f0e69046810717534cb09",
+      "name": "Ranked"
+    }
+  ],
+  "variationJsonSchema": null,
+  "temporary": true,
+  "tags": [
+    "controlled-release-lab"
+  ],
+  "_links": {
+    "parent": {
+      "href": "/api/v2/flags/default",
+      "type": "application/json"
+    },
+    "self": {
+      "href": "/api/v2/flags/default/catalog-ranked-search",
+      "type": "application/json"
+    }
+  },
+  "goalIds": [],
+  "experiments": {
+    "baselineIdx": 0,
+    "items": []
+  },
+  "customProperties": {},
+  "archived": false,
+  "deprecated": false,
+  "defaults": {
+    "onVariation": 0,
+    "offVariation": 0
+  },
+  "environments": {
+    "production": {
+      "on": false,
+      "archived": false,
+      "salt": "7e3399795dd1467db14fa7957bb47312",
+      "sel": "8c8863846804465486af55f1b2f78ff7",
+      "lastModified": 1788979713668,
+      "version": 2,
+      "targets": [],
+      "contextTargets": [],
+      "rules": [
+        {
+          "_id": "b803949d-f155-4ed6-8a93-37ef510b7284",
+          "variation": 0,
+          "clauses": [
+            {
+              "_id": "e09a563c-b421-45eb-a45c-114a98be3b1f",
+              "attribute": "eligible",
+              "op": "in",
+              "values": [
+                false
+              ],
+              "contextKind": "user",
+              "negate": false
+            }
+          ],
+          "trackEvents": false
+        },
+        {
+          "_id": "58313713-65e6-4477-b1fe-ebc2c0bd6e73",
+          "variation": 1,
+          "clauses": [
+            {
+              "_id": "6f591201-b637-4202-b07b-90774a3c75f4",
+              "attribute": "cohort",
+              "op": "in",
+              "values": [
+                "internal"
+              ],
+              "contextKind": "user",
+              "negate": false
+            }
+          ],
+          "trackEvents": false
+        }
+      ],
+      "fallthrough": {
+        "variation": 0
+      },
+      "offVariation": 0,
+      "prerequisites": [],
+      "_site": {
+        "href": "/default/production/features/catalog-ranked-search",
+        "type": "text/html"
+      },
+      "_environmentName": "Production",
+      "trackEvents": false,
+      "trackEventsFallthrough": false,
+      "_summary": {
+        "variations": {
+          "0": {
+            "rules": 1,
+            "nullRules": 0,
+            "targets": 0,
+            "contextTargets": 0,
+            "isFallthrough": true,
+            "isOff": true
+          },
+          "1": {
+            "rules": 1,
+            "nullRules": 0,
+            "targets": 0,
+            "contextTargets": 0
+          }
+        },
+        "prerequisites": 0
+      }
+    },
+    "test": {
+      "on": false,
+      "archived": false,
+      "salt": "37599617a2e24f0db7f5075a112f2b86",
+      "sel": "d622bda27f0d40bb919cb461a2f20718",
+      "lastModified": 1788979713346,
+      "version": 2,
+      "targets": [],
+      "contextTargets": [],
+      "rules": [
+        {
+          "_id": "9939166a-6e10-4d19-956e-d2dad72e89bc",
+          "variation": 0,
+          "clauses": [
+            {
+              "_id": "02945a48-4d9d-46b2-8863-330e45396116",
+              "attribute": "eligible",
+              "op": "in",
+              "values": [
+                false
+              ],
+              "contextKind": "user",
+              "negate": false
+            }
+          ],
+          "trackEvents": false
+        },
+        {
+          "_id": "6d7a8de4-82d6-4eb3-8b24-eef278d56492",
+          "variation": 1,
+          "clauses": [
+            {
+              "_id": "9938fb67-2990-4f97-b0d9-9704c85ac590",
+              "attribute": "cohort",
+              "op": "in",
+              "values": [
+                "internal"
+              ],
+              "contextKind": "user",
+              "negate": false
+            }
+          ],
+          "trackEvents": false
+        }
+      ],
+      "fallthrough": {
+        "variation": 0
+      },
+      "offVariation": 0,
+      "prerequisites": [],
+      "_site": {
+        "href": "/default/test/features/catalog-ranked-search",
+        "type": "text/html"
+      },
+      "_environmentName": "Test",
+      "trackEvents": false,
+      "trackEventsFallthrough": false,
+      "_summary": {
+        "variations": {
+          "0": {
+            "rules": 1,
+            "nullRules": 0,
+            "targets": 0,
+            "contextTargets": 0,
+            "isFallthrough": true,
+            "isOff": true
+          },
+          "1": {
+            "rules": 1,
+            "nullRules": 0,
+            "targets": 0,
+            "contextTargets": 0
+          }
+        },
+        "prerequisites": 0
+      }
+    }
+  }
+}

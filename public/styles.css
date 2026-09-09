@@ -7,7 +7,10 @@ h1 { font-family: Georgia, serif; font-size: clamp(2.4rem, 7vw, 4.2rem); font-we
 .intro { color: #52635c; margin-bottom: 36px; }
 label { display: block; margin-bottom: 10px; font-weight: 600; }
 .search { display: flex; gap: 10px; }
-input, button { font: inherit; padding: 15px; border-radius: 4px; border: 1px solid #8a9891; }
+input, button, select { font: inherit; padding: 15px; border-radius: 4px; border: 1px solid #8a9891; }
+label[for="persona"] { margin-top: 24px; }
+select { background: white; max-width: 100%; }
+#persona-help, #variation { color: #52635c; font-size: .85rem; }
 input { flex: 1; min-width: 0; background: white; }
 button { color: white; background: #244c3b; cursor: pointer; padding-inline: 24px; }
 :focus-visible { outline: 3px solid #d19725; outline-offset: 3px; }

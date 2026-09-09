@@ -1,0 +1,9 @@
+{
+  "httpStatus": 409,
+  "code": "optimistic_locking_error",
+  "message": "testing value /environments/test/version failed: test failed",
+  "priorVersion": 1,
+  "afterVersion": 1,
+  "afterOn": false,
+  "unchanged": true
+}

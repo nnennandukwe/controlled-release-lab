@@ -116,3 +116,12 @@ it.each([
     .mockResolvedValueOnce(Response.json({ artifacts: [] })).mockResolvedValueOnce(Response.json(history));
   await expect(previousOperation(env, transport)).rejects.toThrow('execution cannot be ruled out');
 });
+
+it.each(['expose','disable','observe-exposure','reconcile-exposure'])('carries durable state across %s and deployment operations',async operation=>{
+ const transport=vi.fn().mockResolvedValueOnce(Response.json({workflow_runs:[{...priorRun(99),display_title:`live / ${operation}`}]})).mockResolvedValueOnce(Response.json({artifacts:[{name:'lab-state-live-99-1',expired:false}]}));
+ expect(await previousOperation(env,transport)).toEqual({runId:'99',artifactName:'lab-state-live-99-1'});
+});
+it('routes exposure inputs without weakening fixed sampling policy or forwarding raw provider selectors',()=>{
+ expect(workflowArguments({LAB_OPERATION:'expose',LAB_TARGET:'live',LAB_STAGE:'5',LAB_APPLY:'true',LAB_RELEASE_DIR:'work/release/current',LAB_MAX_DURATION_SECONDS:'1',LAB_CHANGE_REFERENCE:'ignored'})).toEqual(['expose','--target','live','--stage','5','--apply','--release-dir','work/release/current']);
+ expect(workflowArguments({LAB_OPERATION:'reconcile-exposure',LAB_TARGET:'live',LAB_ATTEMPT:'44444444-4444-4444-8444-444444444444'})).toEqual(['reconcile-exposure','--target','live','--attempt','44444444-4444-4444-8444-444444444444']);
+});

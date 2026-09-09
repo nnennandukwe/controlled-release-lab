@@ -19,8 +19,8 @@
     }
   },
   "configurationFingerprints": {
-    "staging": "2b0e4159602c6689fe30cb20a536c47a053415fe80f97d5d58e5bb095b3213b9",
-    "live": "af3fb8c6c8a1cdbf6b981d32b40f8a7a5722c5082eecf20b1c22241dbd6f8b1d"
+    "staging": "d174192d79e0d2f36ddbff6a7c8ba587fa9771db6c10b427a51970531375bbad",
+    "live": "00fb2f014d7c85e2db93175da02d0c94b00507ee1b88b292d56d45f5c973375d"
   },
   "maxEvidenceAgeSeconds": 1800,
   "clockSkewSeconds": 30,

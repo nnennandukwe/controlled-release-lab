@@ -5,14 +5,25 @@ on:
     inputs:
       operation:
         type: choice
-        options: [doctor, deploy, observe, rollback, reconcile, rehearse-recovery]
+        options: [doctor, deploy, observe, rollback, reconcile, rehearse-recovery, expose, disable, observe-exposure, reconcile-exposure]
         required: true
+      stage:
+        description: Protected exposure stage (expose only)
+        type: choice
+        options: [internal, '5']
+        default: internal
+      exposure_run:
+        description: Exact successful internal exposure run (5 percent expansion)
+        type: string
+      exposure_attempt:
+        type: string
+        default: '1'
       target:
         type: choice
         options: [staging, live]
         required: true
       apply:
-        description: Apply the resolved deployment, rollback or staging recovery rehearsal
+        description: Apply the resolved deployment, recovery rehearsal, exposure or disable
         type: boolean
         default: false
       change_reference:
@@ -31,7 +42,7 @@ on:
         description: Optional expected source SHA; must match the build
         type: string
       evidence_run:
-        description: Earlier successful live observation run (rollback)
+        description: Exact signed deployment baseline run (rollback or exposure)
         type: string
       evidence_attempt:
         type: string
@@ -46,7 +57,7 @@ on:
         description: Original uncertain operation UUID (reconcile)
         type: string
       max_duration_seconds:
-        description: Observation deadline; protected apply always uses 90 seconds
+        description: Deployment observation deadline; exposure has fixed policy bounds
         type: number
         default: 90
 permissions:
@@ -58,6 +69,9 @@ concurrency:
 env:
   GH_TOKEN: ${{ github.token }}
   LAB_OPERATION: ${{ inputs.operation }}
+  LAB_STAGE: ${{ inputs.stage }}
+  LAB_EXPOSURE_RUN: ${{ inputs.exposure_run }}
+  LAB_EXPOSURE_ATTEMPT: ${{ inputs.exposure_attempt }}
   LAB_TARGET: ${{ inputs.target }}
   LAB_APPLY: ${{ inputs.apply }}
   LAB_CHANGE_REFERENCE: ${{ inputs.change_reference }}
@@ -91,6 +105,8 @@ jobs:
       - run: npm run setup:verifier
       - id: request
         run: node --import tsx tools/release-workflow.ts resolve
+        env:
+          LD_READ_TOKEN: ${{ secrets.LD_READ_TOKEN }}
       - if: steps.request.outputs.has_request == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -127,6 +143,7 @@ jobs:
       - name: Observe current staging subject
         run: node --import tsx tools/release-workflow.ts proof
         env:
+          LD_READ_TOKEN: ${{ secrets.LD_READ_TOKEN }}
           RAILWAY_PROJECT_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}
       - id: attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
@@ -228,7 +245,9 @@ jobs:
         name: Execute the requested bounded operation
         run: node --import tsx tools/workflow.ts run
         env:
+          LD_READ_TOKEN: ${{ secrets.LD_READ_TOKEN }}
           RAILWAY_PROJECT_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}
+          LD_MANAGEMENT_TOKEN: ${{ (inputs.operation == 'expose' || inputs.operation == 'disable') && inputs.apply && secrets.LD_MANAGEMENT_TOKEN || '' }}
           LAB_CONFIG_JSON: ${{ vars.LAB_CONFIG_JSON }}
           LAB_RELEASE_DIR: ${{ needs.resolve.outputs.has_request == 'true' && 'work/release/current' || '' }}
       - name: Preserve evidence and unresolved operation locks
@@ -246,7 +265,7 @@ jobs:
         if: steps.seal.outputs.sign == 'true'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-path: artifacts/observation/deployment-evidence.json
+          subject-path: ${{ steps.seal.outputs.subject_path }}
       - if: steps.seal.outputs.sign == 'true'
         run: cp "$BUNDLE" artifacts/observation/evidence.bundle.jsonl
         env:

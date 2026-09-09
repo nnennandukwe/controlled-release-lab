@@ -6,5 +6,6 @@
 !tools/**
 !config/toolchain.json
 !config/release-policy.json
+!config/exposure-policy.json
 !public/**
 !Dockerfile

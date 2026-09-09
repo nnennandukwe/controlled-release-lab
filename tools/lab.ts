@@ -6,13 +6,15 @@ import { z } from 'zod';
 import { LabError, targetSchema } from './evidence.js';
 import { execute, type Operation } from './operations.js';
 import { rehearseRecovery } from './recovery-rehearsal.js';
+import { executeExposure, type ExposureOperation } from './exposure.js';
+import { LaunchDarkly } from './launchdarkly.js';
 import { Railway } from './railway.js';
 import { checkRequest, releaseRequestSchema, verifyRelease } from './promotion.js';
 import { fingerprint } from './evidence.js';
 
 export const help = `Controlled Release Lab - authenticated promotion and recovery
 
-Usage: npm run lab -- <doctor|verify|deploy|observe|rollback|reconcile|rehearse-recovery> --target <staging|live> [options]
+Usage: npm run lab -- <doctor|verify|deploy|observe|rollback|reconcile|rehearse-recovery|expose|disable|observe-exposure|reconcile-exposure> --target <staging|live> [options]
 
   doctor       Read provider access, source, and deployment configuration.
   verify       Verify signed release evidence; does not authorize mutation.
@@ -22,7 +24,13 @@ Usage: npm run lab -- <doctor|verify|deploy|observe|rollback|reconcile|rehearse-
   rehearse-recovery  Deploy in staging, discard the response, assert read-only recovery.
   reconcile    Resolve an uncertain operation from its --attempt UUID, without mutation.
 
+  expose       Preview internal or 5% exposure; protected --apply changes the flag.
+  disable      Independently authorize flag off and verify original behavior.
+  observe-exposure    Measure current cohorts without changing the flag.
+  reconcile-exposure Observe an uncertain flag operation without repeating PATCH.
+
 Options:
+  --stage internal|5         Exposure stage (expose only)
   --config PATH             Target map (default config/lab.json; LAB_CONFIG_JSON also supported)
   --release-dir PATH        Immutable request and signed attachments; required for protected apply
   --image IMAGE@sha256:...   Immutable GHCR image for deploy
@@ -34,7 +42,7 @@ Options:
   --change-reference REF     Change identifier; protected apply uses the resolved request value
   --duration-seconds N       Minimum observation window, 0.1-300 seconds (default 60)
   --max-duration-seconds N   Total traffic deadline, 0.1-300 seconds (default 300)
-  --rate N                   Launch-rate ceiling, 1-10 requests/second (default 2)
+  --rate N                   Deployment-observation launch-rate ceiling, 1-10 requests/second (default 2)
   --max-requests N           Request cap, 1-600 (default 120)
   --work-dir PATH            Evidence and locks (default work)
   --help                    Show examples and exit
@@ -47,6 +55,8 @@ Examples:
   npm run lab -- rollback --target live --deployment 'replace-with-deployment-uuid' --restore-record 'work/attempts/replace-with-attempt-uuid/record.json'
   npm run lab -- reconcile --target live --attempt 'replace-with-attempt-uuid'
 
+Exposure observations use fixed policy budgets; duration/rate overrides are rejected.
+Flag reads use LD_READ_TOKEN; protected flag writes also require LD_MANAGEMENT_TOKEN.
 Credentials: RAILWAY_PROJECT_TOKEN, scoped to the selected environment. Never pass it as an argument.
 Local deploy/rollback are previews. Apply requires authenticated GitHub OIDC and protected environment approval.
 Output: JSON on stdout, progress on stderr. Exit 0 verified/preview; 1 invalid/failed; 2 blocked/unknown.
@@ -57,11 +67,11 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
   let heartbeat: NodeJS.Timeout | undefined;
   try {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, strict: true, options: {
-      help: { type: 'boolean' }, target: { type: 'string' }, config: { type: 'string' }, image: { type: 'string' }, 'source-sha': { type: 'string' }, deployment: { type: 'string' }, 'restore-record': { type: 'string' }, attempt: { type: 'string' }, apply: { type: 'boolean' }, 'release-dir': { type: 'string' }, 'change-reference': { type: 'string' }, 'duration-seconds': { type: 'string' }, 'max-duration-seconds': { type: 'string' }, rate: { type: 'string' }, 'max-requests': { type: 'string' }, 'work-dir': { type: 'string' },
+      help: { type: 'boolean' }, stage: { type: 'string' }, target: { type: 'string' }, config: { type: 'string' }, image: { type: 'string' }, 'source-sha': { type: 'string' }, deployment: { type: 'string' }, 'restore-record': { type: 'string' }, attempt: { type: 'string' }, apply: { type: 'boolean' }, 'release-dir': { type: 'string' }, 'change-reference': { type: 'string' }, 'duration-seconds': { type: 'string' }, 'max-duration-seconds': { type: 'string' }, rate: { type: 'string' }, 'max-requests': { type: 'string' }, 'work-dir': { type: 'string' },
     } });
     if (values.help) { stdout(help); return 0; }
     if (positionals.length !== 1) throw new LabError('COMMAND_REQUIRED', 'Choose one command. Run npm run lab -- --help.', 'failed');
-    const operation = z.enum(['doctor', 'verify', 'deploy', 'observe', 'rollback', 'reconcile', 'rehearse-recovery']).parse(positionals[0]);
+    const operation = z.enum(['doctor', 'verify', 'deploy', 'observe', 'rollback', 'reconcile', 'rehearse-recovery', 'expose', 'disable', 'observe-exposure', 'reconcile-exposure']).parse(positionals[0]);
     const targetName = z.enum(['staging', 'live']).parse(values.target);
     if (operation === 'rehearse-recovery' && (targetName !== 'staging' || !values.apply)) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Recovery rehearsals require staging and --apply in the protected workflow.');
     if (operation === 'verify') {
@@ -74,6 +84,11 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       stdout(`${JSON.stringify({ outcome: 'evidence_verified', authorized: false, requestDigest: verified.requestDigest, image: verified.request.image, target: targetName })}\n`);
       return 0;
     }
+    const isExposure = ['expose', 'disable', 'observe-exposure', 'reconcile-exposure'].includes(operation);
+    if (isExposure) {
+      const allowed = ['target', 'work-dir', ...(operation === 'reconcile-exposure' ? ['attempt'] : ['release-dir']), ...(['expose', 'disable'].includes(operation) ? ['apply'] : []), ...(operation === 'expose' ? ['stage'] : [])];
+      if (Object.keys(values).some(key => !allowed.includes(key))) throw new LabError('INVALID_EXPOSURE_ARGUMENT', 'Exposure accepts only its documented request, stage and work-directory arguments.');
+    } else if (values.stage !== undefined) throw new LabError('INVALID_ARGUMENT', '--stage applies only to expose.');
     const raw = values.config ? await readFile(values.config, 'utf8') : environment.LAB_CONFIG_JSON ?? await readFile('config/lab.json', 'utf8');
     const map = z.object({ staging: targetSchema.optional(), live: targetSchema.optional() }).strict().parse(JSON.parse(raw));
     if (map.staging && map.live && map.staging.environmentId === map.live.environmentId) throw new LabError('ENVIRONMENT_COLLISION', 'Staging and live must use separate Railway environments.');
@@ -86,7 +101,17 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       stdout(`${JSON.stringify({ outcome: 'verified', targetName, target, provider: await hosting.snapshot(), scope: 'read-only preflight; no hosted acceptance implied' })}\n`);
       return 0;
     }
-    const request: Operation = { operation: operation === 'rehearse-recovery' ? 'deploy' : operation, purpose: operation === 'rehearse-recovery' ? 'recovery-rehearsal' : 'release', targetName, target, apply: values.apply ?? false };
+    const flags = new LaunchDarkly(environment.LD_READ_TOKEN ?? '', isExposure && values.apply ? environment.LD_MANAGEMENT_TOKEN : undefined, targetName);
+    if (isExposure) {
+      const exposure: ExposureOperation = { operation: operation as ExposureOperation['operation'], targetName, apply: values.apply ?? false };
+      if (values['release-dir']) exposure.releaseDir = values['release-dir'];
+      if (values.attempt) exposure.attempt = values.attempt;
+      if (operation === 'expose') exposure.stage = z.enum(['internal', '5']).parse(values.stage);
+      const result = await executeExposure(exposure, hosting, flags, values['work-dir'] ?? 'work');
+      stdout(`${JSON.stringify(result)}\n`);
+      return result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
+    }
+    const request: Operation = { operation: (operation === 'rehearse-recovery' ? 'deploy' : operation) as Operation['operation'], purpose: operation === 'rehearse-recovery' ? 'recovery-rehearsal' : 'release', targetName, target, apply: values.apply ?? false };
     if (values['release-dir'] !== undefined) request.releaseDir = values['release-dir'];
     if (request.releaseDir && operation === 'observe') {
       const { request: candidate } = await verifyRelease(request.releaseDir);
@@ -113,7 +138,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     if (values.rate !== undefined) request.rate = Number(values.rate);
     if (values['max-requests'] !== undefined) request.maxRequests = Number(values['max-requests']);
     stderr(`${operation}: checking ${targetName}; evidence directory ${resolve(values['work-dir'] ?? 'work')}\n`);
-    const result = await (operation === 'rehearse-recovery' ? rehearseRecovery : execute)(request, hosting, values['work-dir'] ?? 'work');
+    const result = await (operation === 'rehearse-recovery' ? rehearseRecovery : execute)(request, hosting, values['work-dir'] ?? 'work', fetch, flags);
     stdout(`${JSON.stringify(result)}\n`);
     return result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
   } catch (error) {

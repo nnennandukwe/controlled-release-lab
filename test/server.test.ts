@@ -29,6 +29,12 @@ describe('catalog HTTP interface', () => {
     expect(body.results.map((product: { id: string }) => product.id)).toEqual(['keyboard-compact', 'keyboard-full']);
     expect(body.ranking).toBe('original');
     expect(body.requestId).toEqual(expect.any(String));
+    expect(body.evaluation).toMatchObject({ contextKey: 'anonymous', cohort: 'excluded', eligible: false, value: false, fallbackUsed: true, sdkInitialized: false });
+  });
+  it.each(['context=internal-000', 'context=eligible-1001', 'context=internal-001&context=internal-002', 'context=internal-001&eligible=true', 'cohort=internal'])('rejects invalid or spoofed synthetic context: %s', async params => {
+    const response = await fetch(`${await app()}/api/search?q=keyboard&${params}`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'INVALID_CONTEXT', message: expect.stringContaining('synthetic') } });
   });
   it.each(['', ' '.repeat(3), 'x'.repeat(101)])('rejects invalid queries with corrective text', async query => {
     const response = await fetch(`${await app()}/api/search?q=${encodeURIComponent(query)}`);

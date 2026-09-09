@@ -1,7 +1,7 @@
 # Controlled Release Lab
 
 Controlled Release Lab serves a read-only product catalog and records image,
-deployment, and live-request evidence for a Railway deployment or rollback.
+deployment, flag exposure, and live-request evidence for a Railway release.
 It is the runnable companion being built for **From AI-Generated Code to a
 Controlled Release**.
 
@@ -15,8 +15,10 @@ and traffic are synthetic. Build 1's hosted baseline and application recovery
 were exercised on Railway; see the [rehearsal and evidence](docs/hosted-rehearsal.md)
 and [live catalog](https://catalog-live.up.railway.app). Build 2
 [passed signed C-to-D promotion and native recovery](docs/build-02-closeout.md),
-including its final CI-only credential handoff. LaunchDarkly exposure, the seeded regression, and
-completed feature release belong to Builds 3–4. Local checks alone do not complete the release exercise.
+including its final CI-only credential handoff. Build 3 adds controlled internal and
+5% LaunchDarkly exposure, measured holds, and feature disablement on the same
+deployment. Hosted Build 3 acceptance is pending; the seeded regression and
+completed repaired release remain Build 4. Local checks alone do not complete the release exercise.
 
 ## Run locally
 
@@ -30,7 +32,10 @@ npm run dev
 
 Open [localhost:3000](http://localhost:3000). Search for `keyboard`; the compact
 and full-size keyboards appear. Stop with Ctrl+C. No cloud credentials are needed.
-Local builds report `sourceSha: "local"`.
+Local builds report `sourceSha: "local"`. The persona selector uses public synthetic
+identities. Local mode stays original with explicit offline fallback diagnostics;
+hosted mode requires the matching server SDK key. No management token reaches
+the app or browser.
 
 ```bash
 npm run setup:verifier
@@ -61,16 +66,22 @@ npm run lab -- observe --target staging --duration-seconds 60 --rate 2 --max-req
 ```
 
 Hosted commands require a target and its environment-scoped
-`RAILWAY_PROJECT_TOKEN`. Keep that credential in the operator's secret store,
-outside the application and coding-agent environment. Deployment and rollback
+`RAILWAY_PROJECT_TOKEN`. Flag-aware observation also needs `LD_READ_TOKEN`.
+The deployed app uses only its environment-specific `LD_SDK_KEY`; protected
+exposure/disable steps alone receive `LD_MANAGEMENT_TOKEN`. Keep operator credentials in the operator's secret store,
+outside the application and ordinary coding environment. Deployment and rollback
 preview by default. Apply requires an immutable release request, signed evidence,
 and authenticated OIDC identity inside the protected GitHub workflow. A local
 `--apply` flag or change reference alone cannot authorize deployment.
 
-Observations preserve the requested sample count by waiting for concurrency
+Deployment observations preserve the requested sample count by waiting for concurrency
 capacity. `--duration-seconds` is the minimum window; `--max-duration-seconds`
 sets the total traffic deadline (default 300 seconds). The record includes the
 actual elapsed time, and exhausted budgets block verification.
+
+Exposure commands use fixed observation budgets and reject sampling overrides.
+See [controlled exposure and reset](docs/runbook.md#controlled-feature-exposure)
+for the exact workflow inputs and evidence selectors.
 
 For machine-readable stdout without npm's script banner:
 
@@ -83,9 +94,10 @@ node --import tsx tools/lab.ts doctor --target staging
 | `work/attempts/<uuid>/*-*.json` | Preserved intent, provider observations, and requests |
 | `work/attempts/<uuid>/record.json` and `.sha256` | Final record and checksum |
 | `work/rehearsals/attempts/<uuid>/` | Labeled response-loss fixture and automated recovery assertions |
+| `work/exposure/attempts/<uuid>/` | Immutable flag intents, raw cohort samples, and checksummed exposure records |
 | `work/locks/*.lock` | Environment ownership retained after an uncertain mutation |
 | GitHub `build-record-*` artifact | Published digest, producer identity, and signed image provenance |
-| GitHub `lab-proof-*` artifact | Signed deployment observation bound to the exact image and environment |
+| GitHub `lab-proof-*` artifact | Signed deployment or exposure evidence bound to the exact subject |
 | GitHub `lab-state-*` artifact | Preserved operator evidence and unresolved locks |
 
 Exit `0` means verified or preview, `1` invalid/failed, and `2` blocked/unknown.
@@ -102,12 +114,15 @@ or feature-release completion.
   the lock until a separate reconcile verifies recovery. The lab requires one
   deployment writer; its checks cannot atomically exclude dashboard/API changes.
 - Railway application rollback and LaunchDarkly feature disablement are different
-  operations. This build implements the application recovery path.
+  operations. Disablement must verify false evaluations and original results;
+  a PATCH acknowledgement does not prove recovery.
 - Retain earlier images, configuration, provider deployments, and evidence.
   Expired rollback targets or missing evidence require operator intervention.
 - Build 2 uses the approved public GitHub source/public GHCR route. Configure and
   verify environment protection before deployment. Build 1 historical receipts
   remain unsigned and cannot authorize Build 2 promotion.
+- LaunchDarkly may serve cached values after disconnecting. Readiness and SDK
+  initialization do not prove current flag delivery; failed or stale observations hold.
 - There is no runtime integration with ThreadLoop, GAAP, or `workshop-platform`.
 
 ## Plans and requirements

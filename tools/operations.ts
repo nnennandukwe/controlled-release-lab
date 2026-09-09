@@ -1,11 +1,13 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
+import { measureFeatureProof, checkFeatureProof } from './feature-proof.js';
+import type { FlagProvider } from './launchdarkly.js';
 import type { Hosting, Snapshot } from './railway.js';
 import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, loadAttempt, loadRecord, releaseReconciledLock, targetSchema, type EvidenceRecord, type Target } from './evidence.js';
 import { observe, observationOptionsSchema } from './observe.js';
 import { authorizeMutation } from './promotion.js';
 export type Operation = { purpose?: 'release' | 'recovery-rehearsal'; operation: 'deploy' | 'rollback' | 'observe' | 'reconcile'; targetName: 'staging' | 'live'; target: Target; releaseDir?: string; changeReference?: string; image?: string; sourceSha?: string; deploymentId?: string; restoreRecord?: string; attempt?: string; apply?: boolean; durationSeconds?: number; maxDurationSeconds?: number; rate?: number; maxRequests?: number };
-export async function execute(request: Operation, hosting: Hosting, root: string, transport: typeof fetch = fetch) {
+export async function execute(request: Operation, hosting: Hosting, root: string, transport: typeof fetch = fetch, flags?: FlagProvider) {
   targetSchema.parse(request.target);
   const mutating = request.operation === 'deploy' || request.operation === 'rollback';
   const permit = mutating && request.apply ? await authorizeMutation(request) : undefined;
@@ -115,6 +117,8 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     }
     if (serving.sourceImage !== record.requestedImage) throw new LabError('CONFIGURED_IMAGE_MISMATCH', 'The configured image differs from the active image. Keep this operation unresolved until both match the intended digest.');
     if (serving.configurationFingerprint !== record.configurationFingerprint) throw new LabError('CONFIGURATION_MISMATCH', 'The serving configuration differs from the expected baseline. Inspect restored variables and service settings.');
+    const flagBefore = flags ? await flags.snapshot() : undefined;
+    if (flagBefore && permit && flagBefore.digest !== permit.expectedFlagDigest) throw new LabError('FLAG_STATE_CHANGED', 'Flag state changed during deployment. Collect a new controlled observation.');
     const measured = await observe(request.target.url, options, sample => journal.append('request', sample), transport);
     record.observations.push({ phase: 'measurement', ...measured });
     const after = await hosting.snapshot();
@@ -122,6 +126,18 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     if (fingerprint(after) !== fingerprint(serving)) throw new LabError('STATE_CHANGED_DURING_OBSERVATION', 'The deployment or configuration changed during observation. Collect a new stable window.');
     if (measured.outcome !== 'verified') throw new LabError(measured.reasonCodes.join(','), 'The observation failed or was incomplete. Inspect raw requests before repeating the window.', measured.outcome as 'failed' | 'blocked');
     if (measured.samples.some(sample => sample.deploymentId !== record.deploymentId || sample.environment !== request.targetName || (record.requestedSourceSha && sample.sourceSha !== record.requestedSourceSha))) throw new LabError('LIVE_IDENTITY_MISMATCH', 'Live responses do not match the selected source, environment, and deployment. Check the target URL and active service.');
+    if (!record.requestedSourceSha) {
+      const observedSource = z.string().regex(/^[a-f0-9]{40}$/).safeParse(measured.samples[0]?.sourceSha);
+      if (!observedSource.success || measured.samples.some(sample => sample.sourceSha !== observedSource.data)) throw new LabError('LIVE_IDENTITY_MISMATCH', 'A source-free observation requires one valid source SHA across all baseline responses.');
+      record.requestedSourceSha = observedSource.data;
+    }
+    if (flags) {
+      const subject = { sourceSha: record.requestedSourceSha!, deploymentId: record.deploymentId!, targetName: request.targetName, target: request.target, image: record.requestedImage!, configurationFingerprint: record.configurationFingerprint! };
+      const proof = await measureFeatureProof(hosting, flags, subject, measured.p95Ms!, sample => journal.append('feature-request', sample), transport);
+      record.observations.push({ phase: 'feature-proof', proof });
+      if (proof.before.digest !== flagBefore!.digest) throw new LabError('FLAG_STATE_CHANGED', 'Flag state changed during the baseline window.');
+      checkFeatureProof(proof, subject, request.operation === 'deploy' && request.targetName === 'live' ? 'off' : 'any');
+    }
     record.outcome = 'verified';
     record.recoveryInstruction = request.operation === 'reconcile' ? 'Desired provider state and live behavior observed; this does not prove which earlier request caused it.' : '';
   } catch (error) {

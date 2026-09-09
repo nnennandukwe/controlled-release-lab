@@ -4,12 +4,13 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { fingerprint, Journal, LabError, loadRecord } from './evidence.js';
 import { execute, type Operation } from './operations.js';
+import type { FlagProvider } from './launchdarkly.js';
 import type { Hosting } from './railway.js';
 
 // A real staging deployment with one deliberately discarded successful response.
 // The fixture is outside the operator: execute must discover recovery through
 // its ordinary durable intent, provider reads and live observation path.
-export async function rehearseRecovery(request: Operation, hosting: Hosting, root: string, transport: typeof fetch = fetch) {
+export async function rehearseRecovery(request: Operation, hosting: Hosting, root: string, transport: typeof fetch = fetch, flags?: FlagProvider) {
   if (request.targetName !== 'staging' || request.operation !== 'deploy' || request.purpose !== 'recovery-rehearsal' || !request.apply) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Use rehearse-recovery with staging, --apply and its approved rehearsal request.');
   const fixture = new Journal(join(root, 'rehearsals'));
   let receivedDeployment: string | undefined;
@@ -26,7 +27,7 @@ export async function rehearseRecovery(request: Operation, hosting: Hosting, roo
     },
     rollback: async id => { calls.rollbackCalls++; await hosting.rollback(id); },
   };
-  const original = await execute(request, wrapped, root, transport);
+  const original = await execute(request, wrapped, root, transport, flags);
   if (original.outcome !== 'unknown_outcome' || !original.attemptId || !original.reasonCodes.includes('REHEARSAL_RESPONSE_LOST')) throw new LabError('REHEARSAL_NOT_EXERCISED', `The response-loss fixture did not execute as expected. Inspect ${original.recordPath}; reconcile any unknown outcome before another mutation.`, original.outcome === 'unknown_outcome' ? 'unknown_outcome' : 'blocked');
   const deploymentId = z.string().uuid().parse(receivedDeployment);
   const originalBytes = await readFile(original.recordPath);
@@ -47,7 +48,7 @@ export async function rehearseRecovery(request: Operation, hosting: Hosting, roo
     await delay(2000);
   }
   const callsBeforeRecovery = fingerprint(calls);
-  const recovered = await execute({ operation: 'reconcile', targetName: 'staging', target: request.target, attempt: original.attemptId, durationSeconds: 60, maxDurationSeconds: 90, rate: 2, maxRequests: 120 }, wrapped, root, transport);
+  const recovered = await execute({ operation: 'reconcile', targetName: 'staging', target: request.target, attempt: original.attemptId, durationSeconds: 60, maxDurationSeconds: 90, rate: 2, maxRequests: 120 }, wrapped, root, transport, flags);
   const originalRecordUnchanged = originalBytes.equals(await readFile(original.recordPath));
   let lockReleased = false;
   try { await readFile(lock); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; lockReleased = true; }

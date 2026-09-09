@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { fingerprint, imageSchema, LabError, type Target } from './evidence.js';
@@ -80,7 +81,7 @@ export class Railway {
       sourceImage: result.serviceInstance.source?.image ?? null,
       latestId: result.serviceInstance.latestDeployment?.id ?? null,
       active: result.serviceInstance.activeDeployments.map(deploymentView),
-      configurationFingerprint: fingerprint({ healthcheckPath, startCommand, numReplicas, region, variables: Object.fromEntries(['LAB_ENVIRONMENT', 'PORT', 'NODE_ENV'].map(key => [key, result.variables[key] ?? null])) }),
+      configurationFingerprint: fingerprint({ healthcheckPath, startCommand, numReplicas, region, variables: { ...Object.fromEntries(['LAB_ENVIRONMENT', 'PORT', 'NODE_ENV', 'LD_PROJECT_KEY', 'LD_ENVIRONMENT_KEY', 'LD_FLAG_KEY'].map(key => [key, result.variables[key] ?? null])), LD_SDK_KEY_IDENTITY: result.variables.LD_SDK_KEY ? createHash('sha256').update(result.variables.LD_SDK_KEY).digest('hex') : null } }),
     };
   }
   async deployment(id: string): Promise<Deployment> {
