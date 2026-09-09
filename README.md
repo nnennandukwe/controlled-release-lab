@@ -42,7 +42,10 @@ npm start
 `build` writes compiled output and metadata to `dist/`; `start` serves it.
 `npm run verify` installs/checks the pinned attestation verifier, then runs typing,
 tests, compilation, and the Docker smoke test. Tests include an authentic signed
-fixture and require GitHub/Sigstore network access.
+fixture and require GitHub/Sigstore network access. The protected recovery test
+uses the real authorization path and a 60-second local observation; it needs no
+Railway credential. Each successful image publication separately queues the real
+Railway staging recovery rehearsal described in the runbook.
 
 ## Operate the hosted lab
 
@@ -78,6 +81,7 @@ node --import tsx tools/lab.ts doctor --target staging
 |---|---|
 | `work/attempts/<uuid>/*-*.json` | Preserved intent, provider observations, and requests |
 | `work/attempts/<uuid>/record.json` and `.sha256` | Final record and checksum |
+| `work/rehearsals/attempts/<uuid>/` | Labeled response-loss fixture and automated recovery assertions |
 | `work/locks/*.lock` | Environment ownership retained after an uncertain mutation |
 | GitHub `build-record-*` artifact | Published digest, producer identity, and signed image provenance |
 | GitHub `lab-proof-*` artifact | Signed deployment observation bound to the exact image and environment |

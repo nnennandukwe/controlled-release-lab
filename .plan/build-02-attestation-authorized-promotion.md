@@ -337,7 +337,15 @@ external seams. Default tests use no real release credentials or mutations.
    failure, rerun-attempt, missing-artifact and source-update-before-expiry cases.
    Prove original unknown records stay unchanged and duplicate mutations remain
    blocked. Preserve existing captured Railway contract regressions.
-6. **Complete operator flow.** Run command parity/DX checks, then the opt-in real
+6. **Automate real recovery checks.** After successful publication, `recovery-ci.yml`
+   dispatches a protected staging `rehearse-recovery` operation for the exact
+   producer. `tools/recovery-rehearsal.ts` deliberately discards one real successful
+   deployment response, asserts durable uncertainty, then exercises read-only
+   reconciliation with 120 live requests/60 seconds and checks original evidence
+   immutability, released lock and no duplicate mutation. Bind the fixture purpose
+   into the approved request and signed envelope; never enable it for live.
+   The queue success is separate from the actual rehearsal result.
+7. **Complete operator flow.** Run command parity/DX checks, then the opt-in real
    acceptance below. A mocked success never substitutes for hosted completion.
 
 Each slice will include the smallest failing assertion before production code,
@@ -528,7 +536,8 @@ Actual hosted acceptance, using the same staging/live services:
 
 1. Publish CI baseline C through protected `image.yml`; retain provenance,
    container checks, registry digest and build run. Verify it independently.
-2. Deploy C to staging with the protected operator, collect/sign its observation,
+2. Approve C's automatically queued protected staging recovery rehearsal; verify
+   the induced response-loss/reconciliation assertions and signed observation,
    then promote that exact image to live through the gate. This creates the first
    authenticated live recovery baseline; legacy A/B are not silently grandfathered.
    Retain A as an administrator fallback until C is verified; the first governed

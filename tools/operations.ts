@@ -4,7 +4,7 @@ import type { Hosting, Snapshot } from './railway.js';
 import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, loadAttempt, loadRecord, releaseReconciledLock, targetSchema, type EvidenceRecord, type Target } from './evidence.js';
 import { observe, observationOptionsSchema } from './observe.js';
 import { authorizeMutation } from './promotion.js';
-export type Operation = { operation: 'deploy' | 'rollback' | 'observe' | 'reconcile'; targetName: 'staging' | 'live'; target: Target; releaseDir?: string; changeReference?: string; image?: string; sourceSha?: string; deploymentId?: string; restoreRecord?: string; attempt?: string; apply?: boolean; durationSeconds?: number; maxDurationSeconds?: number; rate?: number; maxRequests?: number };
+export type Operation = { purpose?: 'release' | 'recovery-rehearsal'; operation: 'deploy' | 'rollback' | 'observe' | 'reconcile'; targetName: 'staging' | 'live'; target: Target; releaseDir?: string; changeReference?: string; image?: string; sourceSha?: string; deploymentId?: string; restoreRecord?: string; attempt?: string; apply?: boolean; durationSeconds?: number; maxDurationSeconds?: number; rate?: number; maxRequests?: number };
 export async function execute(request: Operation, hosting: Hosting, root: string, transport: typeof fetch = fetch) {
   targetSchema.parse(request.target);
   const mutating = request.operation === 'deploy' || request.operation === 'rollback';

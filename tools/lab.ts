@@ -5,19 +5,21 @@ import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { LabError, targetSchema } from './evidence.js';
 import { execute, type Operation } from './operations.js';
+import { rehearseRecovery } from './recovery-rehearsal.js';
 import { Railway } from './railway.js';
 import { checkRequest, releaseRequestSchema, verifyRelease } from './promotion.js';
 import { fingerprint } from './evidence.js';
 
 export const help = `Controlled Release Lab - authenticated promotion and recovery
 
-Usage: npm run lab -- <doctor|verify|deploy|observe|rollback|reconcile> --target <staging|live> [options]
+Usage: npm run lab -- <doctor|verify|deploy|observe|rollback|reconcile|rehearse-recovery> --target <staging|live> [options]
 
   doctor       Read provider access, source, and deployment configuration.
   verify       Verify signed release evidence; does not authorize mutation.
   deploy       Preview a digest deployment; add --apply to execute it.
   observe      Collect a bounded live sample and preserve the raw observations.
   rollback     Preview earlier recovery, or apply an authenticated --release-dir; then reconcile.
+  rehearse-recovery  Deploy in staging, discard the response, assert read-only recovery.
   reconcile    Resolve an uncertain operation from its --attempt UUID, without mutation.
 
 Options:
@@ -28,7 +30,7 @@ Options:
   --deployment UUID          Earlier Railway deployment for rollback
   --restore-record PATH      Verified earlier record.json and its .sha256 file
   --attempt UUID             Original uncertain attempt under the work directory
-  --apply                    Execute deploy/rollback inside the protected GitHub workflow
+  --apply                    Execute deploy/rollback/staging rehearsal inside the protected GitHub workflow
   --change-reference REF     Change identifier; protected apply uses the resolved request value
   --duration-seconds N       Minimum observation window, 0.1-300 seconds (default 60)
   --max-duration-seconds N   Total traffic deadline, 0.1-300 seconds (default 300)
@@ -59,8 +61,9 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     } });
     if (values.help) { stdout(help); return 0; }
     if (positionals.length !== 1) throw new LabError('COMMAND_REQUIRED', 'Choose one command. Run npm run lab -- --help.', 'failed');
-    const operation = z.enum(['doctor', 'verify', 'deploy', 'observe', 'rollback', 'reconcile']).parse(positionals[0]);
+    const operation = z.enum(['doctor', 'verify', 'deploy', 'observe', 'rollback', 'reconcile', 'rehearse-recovery']).parse(positionals[0]);
     const targetName = z.enum(['staging', 'live']).parse(values.target);
+    if (operation === 'rehearse-recovery' && (targetName !== 'staging' || !values.apply)) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Recovery rehearsals require staging and --apply in the protected workflow.');
     if (operation === 'verify') {
       if (values.apply) throw new LabError('VERIFY_IS_READ_ONLY', 'Verify cannot apply changes. Dispatch the protected Operate lab workflow.');
       if (Object.keys(values).some(name => !['target', 'release-dir'].includes(name))) throw new LabError('VERIFY_IS_READ_ONLY', 'Verify accepts only --target and --release-dir.');
@@ -83,7 +86,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       stdout(`${JSON.stringify({ outcome: 'verified', targetName, target, provider: await hosting.snapshot(), scope: 'read-only preflight; no hosted acceptance implied' })}\n`);
       return 0;
     }
-    const request: Operation = { operation, targetName, target, apply: values.apply ?? false };
+    const request: Operation = { operation: operation === 'rehearse-recovery' ? 'deploy' : operation, purpose: operation === 'rehearse-recovery' ? 'recovery-rehearsal' : 'release', targetName, target, apply: values.apply ?? false };
     if (values['release-dir'] !== undefined) request.releaseDir = values['release-dir'];
     if (request.releaseDir && operation === 'observe') {
       const { request: candidate } = await verifyRelease(request.releaseDir);
@@ -110,7 +113,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     if (values.rate !== undefined) request.rate = Number(values.rate);
     if (values['max-requests'] !== undefined) request.maxRequests = Number(values['max-requests']);
     stderr(`${operation}: checking ${targetName}; evidence directory ${resolve(values['work-dir'] ?? 'work')}\n`);
-    const result = await execute(request, hosting, values['work-dir'] ?? 'work');
+    const result = await (operation === 'rehearse-recovery' ? rehearseRecovery : execute)(request, hosting, values['work-dir'] ?? 'work');
     stdout(`${JSON.stringify(result)}\n`);
     return result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
   } catch (error) {

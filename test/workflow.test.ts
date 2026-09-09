@@ -86,3 +86,12 @@ it('passes the immutable release directory instead of conflicting legacy apply f
   expect(workflowArguments({ LAB_OPERATION: 'deploy', LAB_TARGET: 'live', LAB_APPLY: 'true', LAB_RELEASE_DIR: 'work/release/current', LAB_IMAGE: 'unused' }))
     .toEqual(['deploy', '--target', 'live', '--apply', '--release-dir', 'work/release/current']);
 });
+it('recovers durable state from the automated recovery rehearsal before the next mutation', async () => {
+  const transport = vi.fn().mockResolvedValueOnce(Response.json({ workflow_runs: [{ ...priorRun(99), display_title: 'staging / rehearse-recovery' }] }))
+    .mockResolvedValueOnce(Response.json({ artifacts: [{ name: 'lab-state-staging-99-1', expired: false }] }));
+  expect(await previousOperation({ ...env, LAB_TARGET: 'staging' }, transport)).toEqual({ runId: '99', artifactName: 'lab-state-staging-99-1' });
+});
+it('forwards the rehearsal request and explicit apply through the public workflow command', () => {
+  expect(workflowArguments({ LAB_OPERATION: 'rehearse-recovery', LAB_TARGET: 'staging', LAB_APPLY: 'true', LAB_RELEASE_DIR: 'work/release/current' }))
+    .toEqual(['rehearse-recovery', '--target', 'staging', '--apply', '--release-dir', 'work/release/current']);
+});

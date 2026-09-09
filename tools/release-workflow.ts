@@ -46,13 +46,14 @@ async function attachments(directory: string, names: string[]) {
 async function writeRequest(directory: string, value: unknown) {
   const request = releaseRequestSchema.parse(value);
   await jsonFile(join(directory, 'release-request.json'), request);
-  if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `### Resolved ${request.operation}: ${request.targetName}\n\nImage: \`${request.image}\`\n\nSource: \`${request.sourceSha}\`\n\nTarget: \`${request.target.environmentId}\`\n\nConfiguration: \`${request.configurationFingerprint}\`\n\nPolicy: \`${request.policyDigest}\`\n\nRequest: \`${sha256(await readFile(join(directory, 'release-request.json')))}\`\n\nChange: ${request.changeReference}\n\nRecovery deployment: ${request.rollbackDeploymentId ?? 'none'}\n\nExpires: ${request.expiresAt}\n`);
+  if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `### Resolved ${request.operation}: ${request.targetName}\n\nPurpose: ${request.purpose}\n\nImage: \`${request.image}\`\n\nSource: \`${request.sourceSha}\`\n\nTarget: \`${request.target.environmentId}\`\n\nConfiguration: \`${request.configurationFingerprint}\`\n\nPolicy: \`${request.policyDigest}\`\n\nRequest: \`${sha256(await readFile(join(directory, 'release-request.json')))}\`\n\nChange: ${request.changeReference}\n\nRecovery deployment: ${request.rollbackDeploymentId ?? 'none'}\n\nExpires: ${request.expiresAt}\n`);
   return request;
 }
 
 export async function resolveRelease(environment: NodeJS.ProcessEnv = process.env) {
-  const operation = z.enum(['doctor', 'deploy', 'observe', 'rollback', 'reconcile']).parse(environment.LAB_OPERATION);
+  const operation = z.enum(['doctor', 'deploy', 'observe', 'rollback', 'reconcile', 'rehearse-recovery']).parse(environment.LAB_OPERATION);
   const targetName = z.enum(['staging', 'live']).parse(environment.LAB_TARGET);
+  if (operation === 'rehearse-recovery' && (targetName !== 'staging' || environment.LAB_APPLY !== 'true')) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Recovery rehearsals require staging and apply=true.');
   const operator = currentOperator();
   // A fresh dispatch is required. Re-running a prior mutation must not replay it.
   if (operator.runAttempt !== '1') throw new LabError('NEW_DISPATCH_REQUIRED', 'Start a new workflow dispatch; reconcile an uncertain earlier attempt before another mutation.');
@@ -83,7 +84,7 @@ export async function resolveRelease(environment: NodeJS.ProcessEnv = process.en
   const build = producerSchema.parse({ sourceSha: buildRecord.sourceSha, runId: buildRun, runAttempt: buildAttempt });
   await assertProducer(build, 'image.yml');
   await copyFile('artifacts/build/image.bundle.jsonl', join(base, 'image.bundle.jsonl'));
-  const request = await writeRequest(base, { schemaVersion: 1, operation, targetName, target: policy.targets[targetName], image: buildRecord.image, sourceSha: build.sourceSha,
+  const request = await writeRequest(base, { schemaVersion: 1, purpose: operation === 'rehearse-recovery' ? 'recovery-rehearsal' : 'release', operation: operation === 'rehearse-recovery' ? 'deploy' : operation, targetName, target: policy.targets[targetName], image: buildRecord.image, sourceSha: build.sourceSha,
     build, operator, policyDigest, configurationFingerprint: policy.configurationFingerprints[targetName], changeReference,
     issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + policy.maxEvidenceAgeSeconds * 1000).toISOString(),
     attachments: await attachments(base, names), rollbackDeploymentId: restore?.record.deploymentId ?? null });
@@ -129,7 +130,7 @@ export async function sealObservation() {
   if (process.env.LAB_OPERATION === 'reconcile') {
     // Reconciliation observes a previous effect; it does not borrow its expired
     // authorization. Authenticate the image again under a new observation request.
-    request = releaseRequestSchema.parse({ ...request, operation: 'observe', operator: currentOperator(), rollbackDeploymentId: null,
+    request = releaseRequestSchema.parse({ ...request, purpose: 'release', operation: 'observe', operator: currentOperator(), rollbackDeploymentId: null,
       issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + policy.maxEvidenceAgeSeconds * 1000).toISOString(),
       attachments: request.attachments.filter(attachment => attachment.name === 'image.bundle.jsonl') });
     const directory = 'artifacts/reconcile-request';

@@ -24,7 +24,7 @@ export const policy = policySchema.parse(configuredPolicy);
 export const policyDigest = sha256(await readFile(new URL('../config/release-policy.json', import.meta.url)));
 const attachmentNames = ['image.bundle.jsonl', 'staging-evidence.json', 'staging.bundle.jsonl', 'recovery-evidence.json', 'recovery.bundle.jsonl', 'restore-record.json'] as const;
 export const releaseRequestSchema = z.object({
-  schemaVersion: z.literal(1), operation: z.enum(['deploy', 'rollback', 'observe']),
+  schemaVersion: z.literal(1), purpose: z.enum(['release', 'recovery-rehearsal']), operation: z.enum(['deploy', 'rollback', 'observe']),
   targetName: z.enum(['staging', 'live']), target: targetSchema, image: imageSchema, sourceSha: sourceSchema,
   build: producerSchema, operator: producerSchema, policyDigest: digestSchema, configurationFingerprint: digestSchema,
   changeReference: changeReferenceSchema, issuedAt: z.iso.datetime(), expiresAt: z.iso.datetime(),
@@ -34,7 +34,7 @@ export const releaseRequestSchema = z.object({
   .refine(value => (value.operation === 'rollback') === (value.rollbackDeploymentId !== null), 'Rollback requires its exact earlier deployment.');
 export type ReleaseRequest = z.infer<typeof releaseRequestSchema>;
 export function stagingObservationRequest(request: ReleaseRequest): ReleaseRequest {
-  return releaseRequestSchema.parse({ ...request, operation: 'observe', targetName: 'staging', target: policy.targets.staging,
+  return releaseRequestSchema.parse({ ...request, purpose: 'release', operation: 'observe', targetName: 'staging', target: policy.targets.staging,
     configurationFingerprint: policy.configurationFingerprints.staging, rollbackDeploymentId: null,
     attachments: request.attachments.filter(attachment => attachment.name === 'image.bundle.jsonl') });
 }
@@ -43,7 +43,7 @@ export const deploymentEvidenceSchema = z.object({
   schemaVersion: z.literal(1), kind: z.literal('deployment-observation'), record: recordSchema,
   context: z.object({
     operator: producerSchema, build: producerSchema, policyDigest: digestSchema, requestDigest: digestSchema,
-    authorization: z.enum(['protected-mutation', 'protected-observation']), audience: z.literal('synthetic-catalog-baseline'),
+    purpose: z.enum(['release', 'recovery-rehearsal']), authorization: z.enum(['protected-mutation', 'protected-observation']), audience: z.literal('synthetic-catalog-baseline'),
     notEvaluated: z.array(z.string()).min(1),
   }).strict(),
 }).strict();
@@ -100,6 +100,7 @@ async function preserveFile(path: string, bytes: Buffer) {
 }
 
 export function checkRequest(request: ReleaseRequest, now = Date.now()) {
+  if (request.purpose === 'recovery-rehearsal' && (request.targetName !== 'staging' || request.operation !== 'deploy')) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Recovery rehearsals authorize only staging deployment.');
   if (request.policyDigest !== policyDigest) throw new LabError('POLICY_CHANGED', 'Resolve a new request against the current release policy.');
   if (fingerprint(request.target) !== fingerprint(policy.targets[request.targetName]) || request.configurationFingerprint !== policy.configurationFingerprints[request.targetName]
     || request.sourceSha !== request.build.sourceSha || !request.image.startsWith(`ghcr.io/${repository}@`) || policy.revokedImages.includes(request.image)) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'Request does not match the allowed image, target, source or configuration.');
@@ -208,7 +209,7 @@ export async function authorizeMutation(input: Operation) {
   if (!input.releaseDir) throw new LabError('PROTECTED_RUN_REQUIRED', 'Use --release-dir in the protected Operate lab workflow; local preview does not authorize apply.');
   const verified = await verifyRelease(input.releaseDir);
   const request = verified.request;
-  if (request.operation !== input.operation || request.targetName !== input.targetName || fingerprint(request.target) !== fingerprint(input.target)
+  if (request.purpose !== (input.purpose ?? 'release') || request.operation !== input.operation || request.targetName !== input.targetName || fingerprint(request.target) !== fingerprint(input.target)
     || (input.image !== undefined && input.image !== request.image) || (input.sourceSha !== undefined && input.sourceSha !== request.sourceSha)
     || (input.changeReference !== undefined && input.changeReference !== request.changeReference) || (input.deploymentId !== undefined && input.deploymentId !== request.rollbackDeploymentId)
     || input.restoreRecord !== undefined) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'Command arguments conflict with the resolved release request.');
@@ -243,7 +244,7 @@ export async function authorizeMutation(input: Operation) {
 export function createEnvelope(record: EvidenceRecord, request: ReleaseRequest, requestDigest: string): DeploymentEvidence {
   const envelope = deploymentEvidenceSchema.parse({ schemaVersion: 1, kind: 'deployment-observation', record,
     context: { operator: request.operator, build: request.build, policyDigest, requestDigest,
-      authorization: request.operation === 'observe' ? 'protected-observation' : 'protected-mutation', audience: 'synthetic-catalog-baseline',
+      purpose: request.purpose, authorization: request.operation === 'observe' ? 'protected-observation' : 'protected-mutation', audience: 'synthetic-catalog-baseline',
       notEvaluated: ['Semantic correctness', 'Feature cohorts', 'Production service-level objectives'] } });
   // Use recovery semantics only to select the actual observed target, without
   // applying promotion freshness to a just-completed live observation.

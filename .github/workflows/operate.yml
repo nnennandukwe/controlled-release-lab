@@ -5,21 +5,21 @@ on:
     inputs:
       operation:
         type: choice
-        options: [doctor, deploy, observe, rollback, reconcile]
+        options: [doctor, deploy, observe, rollback, reconcile, rehearse-recovery]
         required: true
       target:
         type: choice
         options: [staging, live]
         required: true
       apply:
-        description: Apply the resolved immutable deployment or rollback
+        description: Apply the resolved deployment, rollback or staging recovery rehearsal
         type: boolean
         default: false
       change_reference:
         description: Change identifier (required for publication, observation or mutation)
         type: string
       build_run:
-        description: Exact successful Publish image run ID (deploy/observe)
+        description: Exact successful Publish image run ID (deploy/observe/rehearse-recovery)
         type: string
       build_attempt:
         type: string

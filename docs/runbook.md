@@ -112,6 +112,7 @@ Dispatch **Operate lab** from main. Inputs:
 | `deploy` | `build_run`, `build_attempt` (default 1), `change_reference`; `apply=true` for mutation |
 | `observe` | Same build selectors and reference; collects and signs evidence without mutation |
 | `rollback` | `evidence_run`, `evidence_attempt` (default 1), `change_reference`; `apply=true` for mutation |
+| `rehearse-recovery` | Staging only, `apply=true`, exact build selectors and reference; automatically queued after publication |
 | `reconcile` | Original uncertain `attempt` UUID; reads retained state without repeating the mutation |
 
 Optional `image`/`source_sha` inputs assert the selected build identity. Optional
@@ -188,6 +189,38 @@ request is not a deployment. A lost response after a mutation is not a retry cue
 The work directory keeps intent, authorization, observations, checksummed records,
 and locks. Raw samples preserve failures in the denominator; missing responses
 produce a null p95 instead of claiming a complete latency measurement.
+
+## Automated hosted recovery test
+
+Each successful **Publish image** run on main triggers **Queue hosted recovery
+test**, which dispatches **Operate lab** with `rehearse-recovery`, staging and
+that exact build run/attempt. The queue does not run producer code or receive
+Railway credentials. Inspect the resolved request and approve staging to run it.
+A successful queue or publication does not establish recovery: the separate
+**staging / rehearse-recovery** run must finish successfully, including signing.
+
+The request explicitly binds `purpose: recovery-rehearsal`. Ordinary deployment
+cannot consume it, and the rehearsal rejects live targets or preview mode. The
+real protected execution path updates the staging image and deploys it once.
+A labeled teaching fixture then discards the successful deployment response.
+This simulates response loss after a real Railway mutation; it does not simulate
+a Railway outage or introduce a broken catalog implementation.
+
+Automated assertions require an unknown outcome, retained lock and durable intent,
+then wait for the provider using reads only. Ordinary reconciliation receives the
+original attempt UUID, verifies provider/source/configuration identity and collects
+120 live requests over 60 seconds. The test requires unchanged original evidence,
+no repeated mutation, and a released lock before declaring verified recovery.
+Its signed observation carries the rehearsal purpose. Fixture and assertion
+records remain under `work/rehearsals/attempts/` in the `lab-state` artifact.
+
+A real failure before injection produces `REHEARSAL_NOT_EXERCISED`; an unresolved
+provider state or failed measurement leaves the test incomplete and retains its
+underlying evidence. Inspect the original attempt and use a new read-only
+`reconcile` dispatch where needed. Do not retry the mutation or delete its lock.
+Local tests exercise the same assertions with controlled external seams; only the
+protected hosted run establishes actual Railway behavior. Native rollback remains
+a distinct acceptance case below.
 
 ## Native rollback and separate reconciliation
 

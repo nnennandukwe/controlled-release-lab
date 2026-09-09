@@ -31,7 +31,7 @@ const source = 'b'.repeat(40), operatorSource = 'c'.repeat(40);
 const build = { sourceSha: source, runId: '10', runAttempt: '1' };
 const operator = { sourceSha: operatorSource, runId: '20', runAttempt: '1' };
 function request(targetName: 'staging' | 'live' = 'live'): ReleaseRequest {
-  return releaseRequestSchema.parse({ schemaVersion: 1, operation: 'deploy', targetName, target: policy.targets[targetName], image, sourceSha: source, build, operator, policyDigest,
+  return releaseRequestSchema.parse({ schemaVersion: 1, purpose: 'release', operation: 'deploy', targetName, target: policy.targets[targetName], image, sourceSha: source, build, operator, policyDigest,
     configurationFingerprint: policy.configurationFingerprints[targetName], changeReference: 'BUILD-2-TEST', issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 600000).toISOString(), attachments: [], rollbackDeploymentId: null });
 }
 function evidence(targetName: 'staging' | 'live' = 'staging') {
@@ -41,7 +41,7 @@ function evidence(targetName: 'staging' | 'live' = 'staging') {
     record: { schemaVersion: 1, attemptId: randomUUID(), operation: 'observe', changeReference: 'BUILD-2-TEST', targetName, target: policy.targets[targetName], requestedImage: image, requestedSourceSha: source, rollbackTarget: null, deploymentId, configurationFingerprint: policy.configurationFingerprints[targetName], startedAt, finishedAt, outcome: 'verified', reasonCodes: [], recoveryInstruction: '',
       observations: [{ phase: 'measurement', outcome: 'verified', startedAt, finishedAt, elapsedMs: 69000, requests: 120, expectedRequests: 120, failures: 0, reasonCodes: [],
         samples: Array.from({ length: 120 }, () => ({ requestId: randomUUID(), durationMs: 20, status: 200, error: null, functional: true, sourceSha: source, deploymentId, environment: targetName })) }] },
-    context: { operator: { ...operator, runId: '15' }, build, policyDigest, requestDigest: 'd'.repeat(64), authorization: 'protected-observation', audience: 'synthetic-catalog-baseline', notEvaluated: ['Feature cohorts'] } });
+    context: { operator: { ...operator, runId: '15' }, build, policyDigest, requestDigest: 'd'.repeat(64), purpose: 'release', authorization: 'protected-observation', audience: 'synthetic-catalog-baseline', notEvaluated: ['Feature cohorts'] } });
 }
 function githubFixture(url: string) {
   if (url.includes('/compare/')) return { status: 'ahead', merge_base_commit: { sha: url.includes(operatorSource) ? operatorSource : source } };
@@ -158,4 +158,9 @@ it('accepts an older main ancestor and rejects a source outside main history by 
   await expect(assertProducer(build, 'image.yml')).resolves.toBeUndefined();
   vi.stubGlobal('fetch', async (url: string) => Response.json(url.includes('/compare/') ? { status: 'diverged', merge_base_commit: { sha: 'f'.repeat(40) } } : githubFixture(url)));
   await expect(assertProducer(build, 'image.yml')).rejects.toMatchObject({ code: 'PROVENANCE_REJECTED' });
+});
+
+it('rejects using a rehearsal purpose for a live deployment or observation', () => {
+  expect(() => checkRequest({ ...request('live'), purpose: 'recovery-rehearsal' })).toThrow('only staging');
+  expect(() => checkRequest({ ...request('staging'), operation: 'observe', purpose: 'recovery-rehearsal' })).toThrow('only staging');
 });
