@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { search } from './search.js';
 import { applySearchTeachingFixture } from './search-teaching-fixture.js';
-import { createSearchAdmission, createSearchEvaluation } from './search-admission.js';
+import { createSearchAdmission, createSearchEvaluation, searchClientAddress } from './search-admission.js';
 import { loadBuildInfo } from './build-info.js';
 import { flagSettings, offlineFlags, syntheticContext, type FlagEvaluator } from './flags.js';
 
@@ -64,7 +64,9 @@ export async function createApplication(environment: NodeJS.ProcessEnv, flags?: 
         json(400, { error: { code: 'INVALID_CONTEXT', message: 'Provide one valid synthetic context key; cohort and eligibility are server-derived.' }, requestId });
         return;
       }
-      const release = acquireSearch();
+      const client = searchClientAddress(request, config.LAB_ENVIRONMENT !== 'local');
+      if (!client) { json(503, { error: { code: 'CLIENT_ADDRESS_UNAVAILABLE', message: 'Search ingress identity is unavailable. Check the service proxy.' }, requestId });return; }
+      const release = acquireSearch(client);
       if (!release) {
         response.setHeader('Retry-After', '1');response.setHeader('Connection', 'close');
         json(429, { error: { code: 'SEARCH_CAPACITY', message: 'Search is busy. Retry after one second.' }, requestId });
@@ -74,7 +76,7 @@ export async function createApplication(environment: NodeJS.ProcessEnv, flags?: 
       const abort = () => { disconnected.abort();release(); };
       response.once('close', abort);
       try {
-        const evaluation = await evaluateSearch(context, disconnected.signal);
+        const evaluation = await evaluateSearch(context, disconnected.signal, client);
         if (disconnected.signal.aborted) return;
         await applySearchTeachingFixture(query, evaluation.value, disconnected.signal);
         json(200, { query, results: search(query, evaluation.value), ranking: evaluation.value ? 'ranked' : 'original', evaluation, requestId, ...identity });

@@ -39,3 +39,30 @@ passes; final review must include that test.
 The second review marked the two original unbounded-admission findings resolved.
 Hosted recovery remains an acceptance gap and specification refs remain unresolved.
 Neither the incomplete review nor local HTTP checks establish hosted acceptance.
+
+## Third review and client fairness
+
+The third full deep review at `92c3db82436450aa465621dd1b1352abcef26a80`
+reported complete file coverage with no skipped files. Specification refs remained
+unresolved. It marked the query-baseline finding resolved, but retained the two
+stalled-evaluator findings with descriptions/snippets from `a1ae426`. Those
+descriptions no longer match the cancellation/deadline implementation and passing
+disconnect, timeout and late-settlement tests. Preserve that attribution discrepancy;
+do not claim the tool closed those findings.
+
+New duplicate action-required findings `1d26f391-8a1e-400e-a27a-406fd9eeddc1`
+and `705d761f-487f-475c-a861-f40727e001dd` correctly identified that a single
+client could consume all global permits. A new HTTP test reproduced 16 admitted
+delayed requests from one client. The fix adds a four-request per-client cap and
+12/second burst/refill quota beneath the existing global limits, plus a per-client
+cap on abandoned SDK calls. Another client can still search while the first has
+delayed or abandoned work. Client quota storage is capped at 1,024 entries and
+expires idle entries; active entries cannot be evicted. Actual HTTP tests cover
+distinct clients and invalid hosted identity; pure tests cover rate/storage bounds
+and local refusal to trust forwarded identity.
+
+Hosted identity follows the existing Railway HTTP ingress: `X-Real-IP` is always
+overwritten by the edge according to [Railway's staff confirmation](https://station.railway.com/questions/need-authoritative-railway-client-ip-p-b7a7b4bd).
+Local mode uses only the socket address. Missing/invalid hosted identity fails
+closed. This adds no resource, credential, dependency or runtime setting. Hosted
+ingress verification and the original failure/recovery acceptance remain pending.

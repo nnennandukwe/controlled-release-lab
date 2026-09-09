@@ -28,13 +28,18 @@ must be verified before a separate source repair produces candidate G. This
 implementation is not evidence that the hosted Build 4 release has completed.
 
 The public search handler admits at most 16 pending searches per process, with a
-20-request burst and replenishment of 20 requests/second. Excess requests receive
+20-request burst and replenishment of 20 requests/second. Each network client is
+also limited to four pending searches and 12/second with burst 12. Excess requests receive
 429 and `Retry-After: 1`; no queue is retained. Disconnected clients cancel the
 teaching delay. These fixed application bounds leave the operator's two-concurrent,
 ten-per-second workload unchanged.
 Flag evaluation has a separate one-second deadline and a cap of 16 outstanding
-SDK calls. A stalled evaluator produces controlled 503 responses without retaining
+SDK calls, at most four per client. A stalled evaluator produces controlled 503 responses without retaining
 HTTP admission or starting unlimited abandoned evaluations.
+Hosted client quotas use Railway's overwritten `X-Real-IP`; local requests use
+their socket address. Missing or invalid hosted client identity produces 503
+`CLIENT_ADDRESS_UNAVAILABLE`. Client state is bounded and transient; see the
+[proxy contract and limits](docs/runbook.md#measurement-and-recovery).
 
 ## Run locally
 

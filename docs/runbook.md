@@ -422,7 +422,9 @@ Launches are limited to 10/sec, concurrency 2, five-second request timeouts,
 threshold relaxation is permitted to obtain a pass.
 
 The public application separately admits at most 16 pending searches per process,
-with a 20-request burst replenished at 20/second. Excess traffic receives HTTP 429
+with a 20-request burst replenished at 20/second. Each network client is also
+limited to four pending requests and a 12-request burst replenished at 12/second.
+Excess traffic receives HTTP 429
 and `Retry-After: 1`; it is never queued. Client disconnect cancels the teaching
 timer, and permits release on success, failure or cancellation. The server caps
 connections at 64, requests per socket at 100, headers/requests/socket inactivity
@@ -432,10 +434,27 @@ acceptance is a failed sample, never permission to retry until green.
 
 Flag evaluation has a one-second deadline independent of the teaching delay.
 Disconnect or deadline ends the HTTP wait and restores admission. At most 16
-underlying SDK evaluations may remain outstanding; if they stall, new admitted
+underlying SDK evaluations may remain outstanding, with at most four per client;
+if they stall, new admitted
 requests return controlled 503 responses until evaluation recovers, rather than
 accumulating abandoned SDK work. Readiness remains a process check, not proof of
 healthy flag evaluation.
+
+The existing hosted targets use Railway's public HTTP proxy. Client quotas use
+its `X-Real-IP` header; Railway documents that header and its staff confirms that
+the edge always overwrites it and public clients cannot reach the app directly.
+See [the header documentation](https://docs.railway.com/networking/public-networking/specs-and-limits)
+and [the proxy trust contract](https://station.railway.com/questions/need-authoritative-railway-client-ip-p-b7a7b4bd).
+Local mode ignores forwarding headers and uses the socket address. A missing,
+invalid or ambiguous hosted address returns 503 `CLIENT_ADDRESS_UNAVAILABLE`:
+check ingress through the configured Railway HTTP domain. Do not add a direct TCP
+proxy or place an unverified proxy in front of this contract. Recheck the ingress
+mapping before hosted acceptance; local header tests do not verify the provider.
+At most 1,024 client quota entries are retained in memory; released idle entries
+expire on the next admitted-capacity check after 60 seconds. Active entries are
+never evicted. Addresses are not added to evidence or application responses.
+Shared egress/NAT clients share a quota; this is bounded demo admission, not a
+general guarantee against distributed denial of service.
 
 Every sample retains actual value/index/reason, context, latency, response identity
 and result ordering. The operator requires zero functional/identity/evaluation
