@@ -2,11 +2,33 @@
   "schemaVersion": 1,
   "projectKey": "default",
   "flagKey": "catalog-ranked-search",
-  "environments": {"staging": "test", "live": "production"},
-  "stages": ["off", "internal", "5"],
-  "roster": {"version": 1, "internal": 20, "eligible": 1000, "excluded": 20},
-  "internal": {"requests": 120, "seconds": 60, "minimumInternal": 20, "minimumControl": 20},
-  "population": {"requests": 1160, "seconds": 120, "minimumEligibleTreatment": 20, "minimumEligibleControl": 200},
+  "environments": {
+    "staging": "test",
+    "live": "production"
+  },
+  "stages": [
+    "off",
+    "internal",
+    "5"
+  ],
+  "roster": {
+    "version": 1,
+    "internal": 20,
+    "eligible": 1000,
+    "excluded": 20
+  },
+  "internal": {
+    "requests": 120,
+    "seconds": 60,
+    "minimumInternal": 20,
+    "minimumControl": 20
+  },
+  "population": {
+    "requests": 1160,
+    "seconds": 120,
+    "minimumEligibleTreatment": 20,
+    "minimumEligibleControl": 200
+  },
   "rate": 10,
   "concurrency": 2,
   "maxRequests": 1200,
@@ -14,5 +36,21 @@
   "timeoutMs": 5000,
   "p95FloorMs": 500,
   "p95BaselineMultiplier": 2,
-  "maxErrors": 0
+  "maxErrors": 0,
+  "flagIdentity": {
+    "variationIds": [
+      "9c521c98-b289-4c2e-a998-d6a8d68b1350",
+      "6f1177da-d188-43c8-9b47-6391bb93e0bb"
+    ],
+    "environments": {
+      "test": {
+        "salt": "37599617a2e24f0db7f5075a112f2b86",
+        "sel": "d622bda27f0d40bb919cb461a2f20718"
+      },
+      "production": {
+        "salt": "7e3399795dd1467db14fa7957bb47312",
+        "sel": "8c8863846804465486af55f1b2f78ff7"
+      }
+    }
+  }
 }

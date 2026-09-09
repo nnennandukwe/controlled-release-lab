@@ -2,7 +2,7 @@ import {expect,it,vi} from 'vitest';
 import {LaunchDarkly, flagSnapshot, desiredFlagState} from '../tools/launchdarkly.js';
 import captured from './fixtures/launchdarkly-off.json' with {type:'json'};
 import refusal from './fixtures/launchdarkly-version-refusal.json' with {type:'json'};
-function provider(patchResponse: () => Promise<Response>, options: { differentAccount?: boolean; unrelatedWriterProject?: boolean; writerDrift?: boolean } = {}) {
+function provider(patchResponse: () => Promise<Response>, options: { differentAccount?: boolean; unrelatedWriterProject?: boolean; writerDrift?: boolean; differentFlag?: boolean } = {}) {
  return vi.fn<typeof fetch>(async (input, init) => {
   if (init?.method === 'PATCH') return patchResponse();
   const writer = (init?.headers as Record<string,string>).Authorization?.startsWith('writ') ?? false;
@@ -11,6 +11,7 @@ function provider(patchResponse: () => Promise<Response>, options: { differentAc
   if (url.includes('/projects?')) return Response.json({items: [{key: 'default'}, ...(writer && options.unrelatedWriterProject ? [{key: 'unrelated'}] : [])]});
   if (url.includes('/flags/default?')) return Response.json({items: [{key: 'catalog-ranked-search'}]});
   const current = structuredClone(captured);
+  if (options.differentFlag) current.variations[0]!._id='different-flag-variation';
   if (writer && options.writerDrift) current.environments.test.version++;
   return Response.json(current);
  });
@@ -67,4 +68,12 @@ it.each([429,502,503,504])('blocks HTTP %s reads without retrying or using the W
  expect(transport).toHaveBeenCalledOnce();
  expect(transport.mock.calls[0]![1]?.method).toBe('GET');
  expect((transport.mock.calls[0]![1]?.headers as Record<string,string>).Authorization).toBe('reader');
+});
+
+it('rejects a different account-specific flag identity even when both credentials agree',async()=>{
+ const transport=provider(async()=>Response.json(captured),{differentFlag:true});
+ const flags=new LaunchDarkly('reader','writer','staging',transport);
+ await expect(flags.snapshot()).rejects.toMatchObject({code:'FLAG_SUBJECT'});
+ await expect(flags.update(flagSnapshot(captured,'staging'),'internal')).rejects.toMatchObject({code:'FLAG_SUBJECT'});
+ expect(patchCalls(transport)).toHaveLength(0);
 });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import exposurePolicy from '../config/exposure-policy.json' with { type: 'json' };
 import { FLAG_KEY } from '../src/flags.js';
 import { fingerprint, LabError } from './evidence.js';
 
@@ -81,7 +82,14 @@ export class LaunchDarkly implements FlagProvider {
     if (projects.items.length !== 1 || projects.items[0]?.key !== 'default' || (projects.totalCount ?? 1) !== 1 || flags.items.some(flag => !allowed.includes(flag.key)) || (flags.totalCount ?? flags.items.length) > allowed.length) throw new LabError('FLAG_ACCOUNT_SCOPE', 'This Writer credential requires the dedicated lab account. Revisit isolation before operating unrelated resources.');
   }
   async assertScope() { await this.checkScope(); }
-  async snapshot() { return flagSnapshot(await this.request(`flags/default/${FLAG_KEY}`), this.target); }
+  private boundSnapshot(input: unknown) {
+    const snapshot = flagSnapshot(input, this.target);
+    const identity = { variationIds: snapshot.globals.variations.map(variation => variation._id), salt: snapshot.state.salt, sel: snapshot.state.sel };
+    const expected = { variationIds: exposurePolicy.flagIdentity.variationIds, ...exposurePolicy.flagIdentity.environments[snapshot.environmentKey] };
+    if (fingerprint(identity) !== fingerprint(expected)) throw new LabError('FLAG_SUBJECT', 'The provider flag identity differs from the configured lab flag. Review account and flag configuration before continuing.');
+    return snapshot;
+  }
+  async snapshot() { return this.boundSnapshot(await this.request(`flags/default/${FLAG_KEY}`)); }
   async update(input: FlagSnapshot, stage: ExposureStage) {
     let before: FlagSnapshot;
     try { before = validateFlagSnapshot(input, this.target); }
@@ -95,7 +103,7 @@ export class LaunchDarkly implements FlagProvider {
     const writerIdentity = identity.extend({ serviceToken: z.literal(true) }).safeParse(await this.request('caller-identity', undefined, true));
     if (!readerIdentity.success || !writerIdentity.success || readerIdentity.data.accountId !== writerIdentity.data.accountId) throw new LabError('FLAG_ACCOUNT_SCOPE', 'Reader and Writer must identify the same dedicated lab account, with a service token for the Writer.');
     await this.checkScope(); await this.checkScope(true);
-    const writerSnapshot = flagSnapshot(await this.request(`flags/default/${FLAG_KEY}`, undefined, true), this.target);
+    const writerSnapshot = this.boundSnapshot(await this.request(`flags/default/${FLAG_KEY}`, undefined, true));
     if (writerSnapshot.digest !== before.digest) throw new LabError('FLAG_STATE_CHANGED', 'Writer sees a different managed flag state. Resolve a fresh request before PATCH.');
     const prefix = `/environments/${before.environmentKey}`;
     const patch: { op: 'test' | 'replace'; path: string; value: unknown }[] = [
@@ -106,7 +114,7 @@ export class LaunchDarkly implements FlagProvider {
     if (fingerprint(desired.rules) !== fingerprint(before.state.rules)) patch.push({ op: 'replace', path: `${prefix}/rules`, value: desired.rules });
     patch.push({ op: 'replace', path: `${prefix}/on`, value: desired.on });
     const response = await this.request(`flags/default/${FLAG_KEY}`, patch);
-    try { return flagSnapshot(response, this.target); }
+    try { return this.boundSnapshot(response); }
     catch { throw new LabError('FLAG_RESPONSE', 'The acknowledged flag change returned an unexpected definition. Reconcile its actual state.', 'unknown_outcome'); }
   }
 }

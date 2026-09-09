@@ -390,7 +390,11 @@ is allowed. Provider and flag snapshots must stay consistent throughout the wind
 Before PATCH, the operator preserves the exact request and verifies its native
 GitHub signature chain and request-bound protected identity again. The same PATCH
 tests the environment version and managed fields before replacing targeting.
-Both Reader and Writer must identify the same account through the provider
+The generated variation IDs and environment salt/selector are pinned in
+`config/exposure-policy.json` when creating the lab flag. Reads and writes must
+match that identity, so two matching tokens for a different account cannot select
+a different flag with the same key. Recreating the flag requires a reviewed policy
+update and fresh evidence. Both Reader and Writer must identify the same account through the provider
 caller-identity API. The Writer independently checks project/flag scope and the
 current managed state before PATCH. All management reads use one bounded attempt;
 a throttled or failed read blocks without retrying. A definite 409 conflict sends
