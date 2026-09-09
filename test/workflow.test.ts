@@ -95,3 +95,22 @@ it('forwards the rehearsal request and explicit apply through the public workflo
   expect(workflowArguments({ LAB_OPERATION: 'rehearse-recovery', LAB_TARGET: 'staging', LAB_APPLY: 'true', LAB_RELEASE_DIR: 'work/release/current' }))
     .toEqual(['rehearse-recovery', '--target', 'staging', '--apply', '--release-dir', 'work/release/current']);
 });
+
+it('restores previous state after cancellation before the protected job received a runner', async () => {
+  const history = { total_count: 1, jobs: [{ name: 'operate', status: 'completed', conclusion: 'cancelled', runner_id: 0, runner_name: '', steps: [] }] };
+  const transport = vi.fn().mockResolvedValueOnce(Response.json({ workflow_runs: [priorRun(99), priorRun(98)] }))
+    .mockResolvedValueOnce(Response.json({ artifacts: [] })).mockResolvedValueOnce(Response.json(history))
+    .mockResolvedValueOnce(Response.json({ artifacts: [{ name: 'lab-state-live-98-1', expired: false }] }));
+  expect(await previousOperation(env, transport)).toEqual({ runId: '98', artifactName: 'lab-state-live-98-1' });
+});
+it.each([
+  { runner_id: 42, runner_name: 'assigned' },
+  { runner_id: 0 },
+  { runner_name: '' },
+  {},
+])('retains uncertainty for cancellation without proof of an unassigned runner: %j', async runner => {
+  const history = { total_count: 1, jobs: [{ name: 'operate', status: 'completed', conclusion: 'cancelled', steps: [], ...runner }] };
+  const transport = vi.fn().mockResolvedValueOnce(Response.json({ workflow_runs: [priorRun(99)] }))
+    .mockResolvedValueOnce(Response.json({ artifacts: [] })).mockResolvedValueOnce(Response.json(history));
+  await expect(previousOperation(env, transport)).rejects.toThrow('execution cannot be ruled out');
+});

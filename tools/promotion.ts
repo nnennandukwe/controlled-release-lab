@@ -99,6 +99,12 @@ async function preserveFile(path: string, bytes: Buffer) {
   finally { await file.close(); }
 }
 
+/** Derive both ISO timestamps from one instant so the validity window cannot exceed policy. */
+export function requestValidity() {
+  const issued = Date.now();
+  return { issuedAt: new Date(issued).toISOString(), expiresAt: new Date(issued + policy.maxEvidenceAgeSeconds * 1000).toISOString() };
+}
+
 export function checkRequest(request: ReleaseRequest, now = Date.now()) {
   if (request.purpose === 'recovery-rehearsal' && (request.targetName !== 'staging' || request.operation !== 'deploy')) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Recovery rehearsals authorize only staging deployment.');
   if (request.policyDigest !== policyDigest) throw new LabError('POLICY_CHANGED', 'Resolve a new request against the current release policy.');
