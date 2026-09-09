@@ -1,9 +1,12 @@
-# Authenticated deployment and recovery runbook
+# Controlled release runbook
 
 Build 2 publishes signed image provenance and signs measured deployment evidence.
 Live promotion consumes a fresh staging observation and a request-bound GitHub
 OIDC identity inside the protected execution path. A signature establishes origin
-and integrity; the policy still decides whether its evidence is sufficient.
+and integrity; the policy still decides whether its evidence is sufficient. Build 3
+adds version 2 deployment evidence containing managed flag state and actual
+variation samples. Historical Build 2 records remain unchanged and cannot satisfy
+the new current-policy promotion gate.
 
 The [Build 1 rehearsal](hosted-rehearsal.md) remains a historical record of the
 local A → B → A exercise. Its unsigned images and receipts are not eligible for
@@ -68,12 +71,16 @@ Set `PORT=3000`, `NODE_ENV=production`, and the selected `LAB_ENVIRONMENT`.
 Railway supplies `RAILWAY_DEPLOYMENT_ID`; source SHA is baked into the image.
 
 The expected fingerprint covers start/readiness/region/replica settings plus those
-three variables. It is not a full infrastructure or secret snapshot. Doctor shows
+three variables, the three LD mapping settings below, and the SHA-256 identity
+of `LD_SDK_KEY`. The raw key is never retained in the fingerprint record. This
+is not a full infrastructure snapshot. Doctor shows
 the observed fingerprint. A legitimate configuration change needs a reviewed policy
 update and fresh evidence; do not paste whatever the provider returned into policy
 without inspecting the change.
 
-Local read-only inspection uses the selected environment-scoped token:
+Local read-only inspection uses the selected environment-scoped token. Flag-aware
+observation also requires `LD_READ_TOKEN`. This lab keeps release tokens only in
+GitHub environment secrets; use the protected workflow for ordinary hosted work:
 
 ```bash
 npm run lab -- doctor --target staging
@@ -126,6 +133,9 @@ preview; it does not issue authority or produce deployment proof.
 
 For live apply, the workflow first obtains staging approval and re-observes that
 exact candidate currently deployed to staging. It signs the resulting evidence.
+Staging must already have verified internal targeting: the fresh proof exercises
+both rankings with real SDK evaluations. Live targeting must be off, and its
+version/state is bound to the request and checked again before deployment.
 Only after the staging-proof job succeeds can the workflow finalize the immutable
 live request and ask for live approval. Inspect the resolved digest, source, target,
 configuration, policy, change reference, expiry, and request hash in that run.
@@ -214,6 +224,8 @@ original attempt UUID, verifies provider/source/configuration identity and colle
 no repeated mutation, and a released lock before declaring verified recovery.
 Its signed observation carries the rehearsal purpose. Fixture and assertion
 records remain under `work/rehearsals/attempts/` in the `lab-state` artifact.
+With Build 3 the recovered candidate also runs the feature observation window
+before signing version 2 evidence; an off baseline does not prove both variations.
 
 A real failure before injection produces `REHEARSAL_NOT_EXERCISED`; an unresolved
 provider state or failed measurement leaves the test incomplete and retains its
@@ -254,8 +266,177 @@ to 10 pages of workflow runs and 20 operation attempts; incomplete job/artifact
 lookups fail closed. State is retained 90 days and carried into later operations.
 
 Railway rollback restores retained application image/configuration, not external
-flags, writes, or migrations. LaunchDarkly feature disablement is a separate Build 3
-exercise. Full repaired feature release and completion remain later milestones.
+flags, writes, or migrations. LaunchDarkly feature disablement is a separate
+operation described below. Full repaired feature release and completion remain later milestones.
+
+## Controlled feature exposure
+
+Use one server-only boolean flag, `default/catalog-ranked-search`. False is
+variation 0 (Original); true is variation 1 (Ranked). Both default and off variation
+are 0. Railway staging uses LD `test`; Railway live uses LD `production`. Keep both
+environments off during initial setup. Use no prerequisites, segments, experiments,
+individual targets, client-side availability, or mobile availability for this flag.
+
+In each environment configure these ordered rules while leaving targeting off:
+
+1. Context kind `user`, attribute `eligible`, is one of `false`: variation 0.
+2. Context kind `user`, attribute `cohort`, is one of `internal`: variation 1.
+
+The default serves variation 0. Turn off event tracking on rules and fallthrough.
+The operator adds its third rule only for the 5% transition: `cohort=eligible`,
+context kind `user`, bucket by `key`, 5,000/100,000 weight to variation 1 and the
+remaining 95,000 to variation 0. Other definitions fail closed. The provider's
+rule IDs, salt, variation IDs/order, environment version and managed fields are
+included in evidence. The captured wrong-version rejection is in
+`test/fixtures/launchdarkly-version-refusal.json` (HTTP 409, unchanged off state).
+
+Install settings through provider secret management, never through source or
+container build arguments:
+
+| Location | Setting | Scope |
+|---|---|---|
+| Railway staging/live | `LD_SDK_KEY` | SDK key from its mapped LD environment |
+| Railway staging/live | `LD_PROJECT_KEY=default` | Fixed project |
+| Railway staging/live | `LD_ENVIRONMENT_KEY=test` / `production` | Exact target mapping |
+| Railway staging/live | `LD_FLAG_KEY=catalog-ranked-search` | Fixed flag |
+| GitHub repository secret | `LD_READ_TOKEN` | Reader service token, API version 20240415 |
+| GitHub staging/live secrets | `LD_MANAGEMENT_TOKEN` | Writer service token, API version 20240415 |
+
+The Reader is passed to main-only preparation and protected observation steps.
+Writer is passed only to the protected exposure/disable step when apply is true.
+Developer's ordinary Writer is account-wide; it is not native per-flag/environment
+isolation. The adapter requires the dedicated single-project account and permits
+only this flag and the five existing `ld-example-*` onboarding flags. Unrelated
+resources require revisiting isolation. Do not make paid custom roles or Guardian
+an unstated prerequisite. Keep one SDK client per service and verify usage remains
+within the selected plan's service-connection allowance after deploy overlap.
+
+Missing hosted keys or incorrect mapping prevent startup. An initialization failure
+serves original behavior with `fallbackUsed: true`; that cannot pass release
+measurement. An initialized SDK can keep serving cached values during disconnection.
+`/readyz` and `sdkInitialized` do not assert control-plane freshness.
+
+The HTTP selector accepts `internal-001` through `internal-020`,
+`eligible-0001` through `eligible-1000`, `excluded-001` through `excluded-020`,
+and `anonymous`. Omission means excluded anonymous. Attributes are server-derived;
+query attempts to override cohort/eligibility are rejected. These are publicly
+selectable demonstration identities, not employee authentication.
+
+### Deployment and audience sequence
+
+Publish healthy image E once and finish its staging recovery rehearsal while the
+flag is off. Retain its signed staging `lab-proof` run as the off baseline. Then:
+
+| Operation | Inputs in addition to target and change reference |
+|---|---|
+| `expose`, stage `internal` | `evidence_run`/`evidence_attempt`: signed off deployment baseline; `apply=true` |
+| `expose`, stage `5` | Same off baseline, plus `exposure_run`/`exposure_attempt`: successful internal exposure; `apply=true` |
+| `disable` | Same retained off deployment baseline; `apply=true`; no healthy prior treatment required |
+| `observe-exposure` | Off deployment baseline; measures current state without PATCH |
+| `reconcile-exposure` | Original uncertain exposure `attempt` UUID; no apply |
+
+A successful **staging / rehearse-recovery** run automatically queues the
+staging internal exposure with `rehearse_response_loss=true` in **Operate lab**.
+Review and approve that queued request; do not dispatch a duplicate. For a fresh
+manual rehearsal, the same inputs are available in the workflow form. The resolved request names `purpose=response-loss-rehearsal`, which must
+match the command before any effect. This uses the same protected staging
+approval and Writer scope. The rehearsal sends one real conditional flag update,
+discards the successful response as a labeled teaching fixture, verifies the
+original unknown outcome and retained lock, then runs read-only reconciliation.
+It asserts one update call, unchanged original evidence, and a released lock only
+after real cohort observation verifies recovery. It does not simulate a natural
+LaunchDarkly outage. The raw fixture and original record remain in `lab-state`;
+the recovered exposure receives the ordinary signed `lab-proof` artifact.
+
+The CLI equivalent adds `--rehearse-response-loss` to an applied internal staging
+`expose` command. Live, 5%, disable and preview rehearsals are rejected before
+provider access. If interrupted, restore the retained state and use ordinary
+`reconcile-exposure`; never rerun the original mutation. This protected hosted
+check follows the main-branch implementation merge; PR tests use REST seams and
+must not be described as hosted acceptance.
+
+First expose internal users in staging. Promote E's exact digest to live through
+the fresh both-variation staging proof and live-off guard. Retain live's signed off
+baseline; perform internal, then 5%, then disable in live. Reset staging using its
+own baseline and protected disable. End with E deployed and off in both targets.
+A request expires after 30 minutes; an expired initial off baseline needs a new
+protected `observe` run before internal exposure. The retained off baseline remains
+usable for disable and the paired latency comparison after expansion.
+
+Local equivalents, after downloading the resolved artifact into the named directory:
+
+```bash
+npm run lab -- expose --target live --stage internal --release-dir work/release/current
+npm run lab -- expose --target live --stage 5 --release-dir work/release/current
+npm run lab -- disable --target live --release-dir work/release/current
+npm run lab -- observe-exposure --target live --release-dir work/release/current
+npm run lab -- reconcile-exposure --target live --attempt 'replace-with-attempt-uuid'
+```
+
+Only the matching protected job can add `--apply`. Exposure accepts no raw flag
+JSON, target override, sampling override or skip-check switch. Preview reads and
+verifies evidence but sends no PATCH. A new request binds image, source, deployment,
+configuration, policy, roster, intended audience, provider version and operator run.
+
+Build 2 version 1 deployment evidence remains historical. Selecting it for rollback
+now fails with `FEATURE_PROOF_REQUIRED`; establish a compatible version 2 baseline
+under the current SDK and configuration policy. Keeping old records does not
+authorize their old configuration under the new policy.
+
+### Measurement and recovery
+
+Internal exposure collects 120 requests over at least 60 seconds: 20 internal,
+20 eligible-control and 20 excluded contexts, each with `keyboard` and `compact`.
+The 5% and off windows collect 1,160 requests over at least 120 seconds: all 1,040
+contexts with `keyboard`, then a fixed 120-context subset with `compact`. Launches
+are limited to 10/sec, concurrency 2, five-second request timeouts, and a 180-second
+deadline. Five percent requires at least 20 distinct eligible treatment and 200
+eligible control contexts; internal traffic cannot fill the eligible denominator.
+Stable hashing does not promise exactly 5% of a finite roster. A read-only
+`observe-exposure` record cannot supply the prior internal exposure authority for
+5%; use the successful internal `expose` record or its verified reconciliation.
+
+Every sample retains actual value/index/reason, context, latency, response identity
+and result ordering. The operator requires zero functional/identity/evaluation
+errors and p95 no greater than max(500 ms, twice the paired off baseline).
+These are tutorial thresholds, not production SLOs. Missing responses and missing
+cohorts hold; the operator never discards failures or resamples until green.
+A passing p95 alone cannot establish coverage: at a sustained 500 ms per request,
+1,160 requests cannot fit into 180 seconds with two concurrent requests. That
+window holds with `OBSERVATION_BUDGET_EXHAUSTED` and retains its samples. Any change
+to the bounded policy requires review and a fresh request; no automatic expansion
+is allowed. Provider and flag snapshots must stay consistent throughout the window.
+
+Before PATCH, the operator preserves the exact request and verifies its native
+GitHub signature chain and request-bound protected identity again. The same PATCH
+tests the environment version and managed fields before replacing targeting.
+The generated variation IDs and environment salt/selector are pinned in
+`config/exposure-policy.json` when creating the lab flag. Reads and writes must
+match that identity, so two matching tokens for a different account cannot select
+a different flag with the same key. Recreating the flag requires a reviewed policy
+update and fresh evidence. Both Reader and Writer must identify the same account through the provider
+caller-identity API. The Writer independently checks project/flag scope and the
+current managed state before PATCH. All management reads use one bounded attempt;
+a throttled or failed read blocks without retrying. A definite 409 conflict sends
+no effective update and requires a new request.
+A lost response or uncertain effect retains a shared deployment/exposure lock.
+`reconcile-exposure` reads the original attempt, verifies the desired state and
+collects a new window without repeating PATCH or rewriting the original record.
+
+A confirmed exposure with an unhealthy measured hold records `blocked` and permits
+a separately authorized disable. Disable changes only this flag to off; it does
+not redeploy. Recovery needs off provider state, false non-fallback evaluations,
+original ordering for the full roster, and the same serving image/deployment.
+Cached true responses leave recovery unverified. If observation signing fails,
+state remains in `lab-state`; use a fresh `observe-exposure` operation after repair.
+Neither a green workflow nor a 2xx response alone means the feature recovered.
+
+Exposure files live under `work/exposure/attempts/UUID/`; `exposure-record.json`
+and its SHA-256 sidecar are immutable. `lab-proof` contains
+`exposure-evidence.json` plus `evidence.bundle.jsonl` for exposure operations,
+or `deployment-evidence.json` plus the bundle for deployment operations.
+Historical records are preserved. New deployment proof is schema version 2;
+exposure requests, records and evidence use their own schema version 1.
 
 ## Acceptance and cleanup
 

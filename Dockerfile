@@ -5,7 +5,7 @@ RUN npm ci --ignore-scripts
 COPY tsconfig.json ./
 COPY src ./src
 COPY tools ./tools
-COPY config/toolchain.json config/release-policy.json ./config/
+COPY config/toolchain.json config/release-policy.json config/exposure-policy.json ./config/
 COPY public ./public
 ARG SOURCE_SHA=local
 ARG BUILD_RUN_ID=local

@@ -45,7 +45,7 @@ export async function previousOperation(environment: NodeJS.ProcessEnv, transpor
   let attemptsInspected = 0;
   for (let page = 1; page <= 10; page++) {
     const runs = z.object({ workflow_runs: z.array(runSchema) }).parse(await get(`actions/workflows/operate.yml/runs?branch=main&per_page=100&page=${page}`)).workflow_runs;
-    const candidates = runs.filter(run => run.head_branch === 'main' && run.id < Number(config.GITHUB_RUN_ID) && ['deploy', 'rollback', 'reconcile', 'rehearse-recovery'].some(operation => run.display_title === `${config.LAB_TARGET} / ${operation}`));
+    const candidates = runs.filter(run => run.head_branch === 'main' && run.id < Number(config.GITHUB_RUN_ID) && ['deploy', 'rollback', 'reconcile', 'rehearse-recovery', 'expose', 'disable', 'observe-exposure', 'reconcile-exposure'].some(operation => run.display_title === `${config.LAB_TARGET} / ${operation}`));
     for (const prior of candidates) {
       if (prior.status !== 'completed') throw new Error('The previous operation has not completed. Wait before starting another operation.');
       const artifacts = z.object({ artifacts: z.array(z.object({ name: z.string(), expired: z.boolean() })) }).parse(await get(`actions/runs/${prior.id}/artifacts?per_page=100`)).artifacts;
@@ -63,21 +63,24 @@ export async function previousOperation(environment: NodeJS.ProcessEnv, transpor
 }
 
 export function workflowArguments(environment: NodeJS.ProcessEnv): string[] {
-  const operation = z.enum(['doctor', 'deploy', 'observe', 'rollback', 'reconcile', 'rehearse-recovery']).parse(environment.LAB_OPERATION);
+  const operation = z.enum(['doctor', 'deploy', 'observe', 'rollback', 'reconcile', 'rehearse-recovery', 'expose', 'disable', 'observe-exposure', 'reconcile-exposure']).parse(environment.LAB_OPERATION);
   const args = [operation, '--target', z.enum(['staging', 'live']).parse(environment.LAB_TARGET)];
-  if (environment.LAB_CHANGE_REFERENCE) args.push('--change-reference', environment.LAB_CHANGE_REFERENCE);
-  if (operation !== 'doctor' && environment.LAB_MAX_DURATION_SECONDS !== undefined) {
+  const exposure = ['expose', 'disable', 'observe-exposure', 'reconcile-exposure'].includes(operation);
+  if (operation === 'expose') args.push('--stage', z.enum(['internal', '5']).parse(environment.LAB_STAGE));
+  if (environment.LAB_REHEARSE_RESPONSE_LOSS === 'true') args.push('--rehearse-response-loss');
+  if (!exposure && environment.LAB_CHANGE_REFERENCE) args.push('--change-reference', environment.LAB_CHANGE_REFERENCE);
+  if (!exposure && operation !== 'doctor' && environment.LAB_MAX_DURATION_SECONDS !== undefined) {
     const maximum = z.coerce.number().min(60).max(300).parse(environment.LAB_MAX_DURATION_SECONDS);
     args.push('--max-duration-seconds', String(maximum));
   }
   if (environment.LAB_APPLY === 'true') args.push('--apply');
-  if (environment.LAB_RELEASE_DIR && ['deploy', 'rollback', 'observe', 'rehearse-recovery'].includes(operation)) {
+  if (environment.LAB_RELEASE_DIR && ['deploy', 'rollback', 'observe', 'rehearse-recovery', 'expose', 'disable', 'observe-exposure'].includes(operation)) {
     args.push('--release-dir', environment.LAB_RELEASE_DIR);
   } else {
     if (operation === 'deploy') args.push('--image', environment.LAB_IMAGE ?? '', '--source-sha', environment.LAB_SOURCE_SHA ?? '');
     if (operation === 'rollback') args.push('--deployment', z.string().uuid().parse(environment.LAB_DEPLOYMENT), '--restore-record', `work/attempts/${z.string().uuid().parse(environment.LAB_RESTORE_ATTEMPT)}/record.json`);
   }
-  if (operation === 'reconcile') args.push('--attempt', z.string().uuid().parse(environment.LAB_ATTEMPT));
+  if (operation === 'reconcile' || operation === 'reconcile-exposure') args.push('--attempt', z.string().uuid().parse(environment.LAB_ATTEMPT));
   return args;
 }
 

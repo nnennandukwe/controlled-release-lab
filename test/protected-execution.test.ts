@@ -1,3 +1,5 @@
+import capturedFlag from './fixtures/launchdarkly-off.json' with { type: 'json' };
+import { flagSnapshot } from '../tools/launchdarkly.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -24,7 +26,7 @@ async function fixture(forged = false, purpose: 'release' | 'recovery-rehearsal'
   const image = `ghcr.io/${policy.repository}@sha256:${'a'.repeat(64)}`, sourceSha = 'b'.repeat(40), operatorSha = 'c'.repeat(40);
   const bundle = 'authenticated image seam';
   const request = releaseRequestSchema.parse({ schemaVersion: 1, purpose, operation: 'deploy', targetName: 'staging', target: policy.targets.staging, image, sourceSha,
-    build: { sourceSha, runId: '10', runAttempt: '1' }, operator: { sourceSha: operatorSha, runId: '20', runAttempt: '1' }, policyDigest,
+    flag: flagSnapshot(capturedFlag, 'staging'), build: { sourceSha, runId: '10', runAttempt: '1' }, operator: { sourceSha: operatorSha, runId: '20', runAttempt: '1' }, policyDigest,
     configurationFingerprint: policy.configurationFingerprints.staging, changeReference: 'BUILD-2-TEST', issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 600000).toISOString(),
     attachments: [{ name: 'image.bundle.jsonl', sha256: sha256(bundle) }], rollbackDeploymentId: null });
   const bytes = JSON.stringify(request), requestDigest = sha256(bytes);
@@ -34,10 +36,12 @@ async function fixture(forged = false, purpose: 'release' | 'recovery-rehearsal'
     workflow_ref: `${policy.repository}/.github/workflows/operate.yml@refs/heads/main`, workflow_sha: operatorSha, run_id: '20', run_attempt: '1', check_run_id: '30', actor_id: policy.ownerId })
     .setProtectedHeader({ alg: 'RS256' }).setIssuer('https://token.actions.githubusercontent.com').setAudience(`https://github.com/${policy.repository}/release/${requestDigest}`)
     .setIssuedAt().setNotBefore('0s').setExpirationTime('5m').sign(keys.privateKey);
+  vi.stubEnv('LD_READ_TOKEN', 'reader-fixture');
   vi.stubEnv('ACTIONS_ID_TOKEN_REQUEST_URL', 'https://test.actions.githubusercontent.com/oidc'); vi.stubEnv('ACTIONS_ID_TOKEN_REQUEST_TOKEN', randomUUID());
   vi.stubEnv('GITHUB_REPOSITORY', policy.repository); vi.stubEnv('GITHUB_REF', 'refs/heads/main'); vi.stubEnv('GH_TOKEN', 'test-only-token');
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
     const url = String(input);
+    if (url === 'https://app.launchdarkly.com/api/v2/flags/default/catalog-ranked-search') return Response.json(capturedFlag);
     if (url.startsWith('https://test.actions.githubusercontent.com/oidc')) {
       expect(new URL(url).searchParams.get('audience')).toBe(`https://github.com/${policy.repository}/release/${requestDigest}`);
       return Response.json({ value: forged ? 'unsigned-identity' : jwt });

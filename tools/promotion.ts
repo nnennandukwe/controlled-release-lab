@@ -7,6 +7,8 @@ import { imageSchema, targetSchema, recordSchema, changeReferenceSchema, fingerp
 import { verifyArtifact, repository, issuer } from './attestation.js';
 import { sha256 } from './setup-verifier.js';
 import { requireProtectedEnvironment } from './workflow-guard.js';
+import { featureProofSchema, checkFeatureProof, type FeatureProof } from './feature-proof.js';
+import { flagSnapshotSchema, validateFlagSnapshot, LaunchDarkly } from './launchdarkly.js';
 import type { Operation } from './operations.js';
 
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -30,11 +32,12 @@ export const releaseRequestSchema = z.object({
   changeReference: changeReferenceSchema, issuedAt: z.iso.datetime(), expiresAt: z.iso.datetime(),
   attachments: z.array(z.object({ name: z.enum(attachmentNames), sha256: digestSchema }).strict()).max(6),
   rollbackDeploymentId: z.string().uuid().nullable(),
+  flag: flagSnapshotSchema.optional(),
 }).strict().refine(value => new Set(value.attachments.map(item => item.name)).size === value.attachments.length, 'Duplicate attachments are not allowed.')
   .refine(value => (value.operation === 'rollback') === (value.rollbackDeploymentId !== null), 'Rollback requires its exact earlier deployment.');
 export type ReleaseRequest = z.infer<typeof releaseRequestSchema>;
 export function stagingObservationRequest(request: ReleaseRequest): ReleaseRequest {
-  return releaseRequestSchema.parse({ ...request, purpose: 'release', operation: 'observe', targetName: 'staging', target: policy.targets.staging,
+  return releaseRequestSchema.parse({ ...request, flag: undefined, purpose: 'release', operation: 'observe', targetName: 'staging', target: policy.targets.staging,
     configurationFingerprint: policy.configurationFingerprints.staging, rollbackDeploymentId: null,
     attachments: request.attachments.filter(attachment => attachment.name === 'image.bundle.jsonl') });
 }
@@ -47,6 +50,9 @@ export const deploymentEvidenceSchema = z.object({
     notEvaluated: z.array(z.string()).min(1),
   }).strict(),
 }).strict();
+export const controlledDeploymentEvidenceSchema = deploymentEvidenceSchema.extend({ schemaVersion: z.literal(2), featureProof: featureProofSchema }).strict();
+export const anyDeploymentEvidenceSchema = z.union([controlledDeploymentEvidenceSchema, deploymentEvidenceSchema]);
+export type ControlledDeploymentEvidence = z.infer<typeof controlledDeploymentEvidenceSchema>;
 export type DeploymentEvidence = z.infer<typeof deploymentEvidenceSchema>;
 
 export async function github(path: string, environment: NodeJS.ProcessEnv = process.env, transport: typeof fetch = fetch): Promise<unknown> {
@@ -85,7 +91,7 @@ async function runJobs(producer: z.infer<typeof producerSchema>) {
   throw new LabError('GITHUB_EVIDENCE_UNAVAILABLE', 'Cannot enumerate exact run jobs within the bounded lookup.');
 }
 
-async function boundedFile(directory: string, name: string) {
+export async function boundedFile(directory: string, name: string) {
   const root = await realpath(directory);
   const path = join(root, name);
   const info = await lstat(path);
@@ -93,7 +99,7 @@ async function boundedFile(directory: string, name: string) {
   return { path, bytes: await readFile(path) };
 }
 
-async function preserveFile(path: string, bytes: Buffer) {
+export async function preserveFile(path: string, bytes: Buffer) {
   const file = await open(path, 'wx', 0o600);
   try { await file.writeFile(bytes); await file.sync(); }
   finally { await file.close(); }
@@ -106,6 +112,7 @@ export function requestValidity() {
 }
 
 export function checkRequest(request: ReleaseRequest, now = Date.now()) {
+  if (request.flag) validateFlagSnapshot(request.flag, request.targetName);
   if (request.purpose === 'recovery-rehearsal' && (request.targetName !== 'staging' || request.operation !== 'deploy')) throw new LabError('REHEARSAL_TARGET_REJECTED', 'Recovery rehearsals authorize only staging deployment.');
   if (request.policyDigest !== policyDigest) throw new LabError('POLICY_CHANGED', 'Resolve a new request against the current release policy.');
   if (fingerprint(request.target) !== fingerprint(policy.targets[request.targetName]) || request.configurationFingerprint !== policy.configurationFingerprints[request.targetName]
@@ -114,7 +121,7 @@ export function checkRequest(request: ReleaseRequest, now = Date.now()) {
   if (issued > now + policy.clockSkewSeconds * 1000 || expires <= now || expires <= issued || expires - issued > policy.maxEvidenceAgeSeconds * 1000) throw new LabError('RELEASE_REQUEST_EXPIRED', 'Resolve a new release request and collect fresh evidence before approval.');
 }
 
-export function checkObservation(evidence: DeploymentEvidence, request: ReleaseRequest, recovery: boolean, now = Date.now()) {
+export function checkObservation(evidence: Pick<DeploymentEvidence, 'record' | 'context'>, request: ReleaseRequest, recovery: boolean, now = Date.now()) {
   const record = evidence.record;
   const target = recovery ? request.targetName : 'staging';
   if (record.outcome !== 'verified' || !record.deploymentId || !record.finishedAt || record.requestedImage !== request.image || record.requestedSourceSha !== request.sourceSha
@@ -161,12 +168,14 @@ export async function verifyRelease(directory: string) {
     // claim from this untrusted JSON is used in a policy decision yet.
     const candidate = z.object({ context: z.object({ operator: producerSchema }) }).parse(JSON.parse(envelope.bytes.toString()));
     const verified = await verifyArtifact({ subject: envelope.path, bundle: required(`${prefix}.bundle.jsonl`).path, workflow: 'operate.yml', sourceSha: candidate.context.operator.sourceSha });
-    const evidence = deploymentEvidenceSchema.parse(JSON.parse(envelope.bytes.toString()));
+    const evidence = anyDeploymentEvidenceSchema.parse(JSON.parse(envelope.bytes.toString()));
+    if (evidence.schemaVersion !== 2) throw new LabError('FEATURE_PROOF_REQUIRED', 'Legacy deployment evidence remains readable history. Establish a compatible version 2 baseline under the current SDK and release policy before promotion or rollback.');
     if (verified.runId !== evidence.context.operator.runId || verified.runAttempt !== evidence.context.operator.runAttempt) throw new LabError('PROVENANCE_REJECTED', 'Observation signer does not match its claimed run.');
     if (!recovery && (fingerprint(evidence.context.operator) !== fingerprint(request.operator)
       || evidence.context.requestDigest !== sha256(serializedRequest(stagingObservationRequest(request))))) throw new LabError('STAGING_REQUEST_MISMATCH', 'Staging proof belongs to another promotion request. Resolve and observe this exact request again.');
     await assertProducer(evidence.context.operator, 'operate.yml', !recovery && evidence.context.operator.runId === request.operator.runId && evidence.context.operator.runAttempt === request.operator.runAttempt);
     const observedUntil = checkObservation(evidence, request, recovery);
+    checkFeatureProof(evidence.featureProof, { sourceSha: request.sourceSha, deploymentId: evidence.record.deploymentId!, targetName: recovery ? request.targetName : 'staging', target: policy.targets[recovery ? request.targetName : 'staging'], image: request.image, configurationFingerprint: policy.configurationFingerprints[recovery ? request.targetName : 'staging'] }, recovery ? 'any' : 'both', !recovery);
     if (!recovery) eligibilityExpiresAt = Math.min(eligibilityExpiresAt, observedUntil + policy.maxEvidenceAgeSeconds * 1000);
     if (recovery) {
       restoreRecord = required('restore-record.json').path;
@@ -177,7 +186,7 @@ export async function verifyRelease(directory: string) {
 }
 
 const keySet = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks`), { timeoutDuration: 10000 });
-export async function verifyRunToken(token: string, request: ReleaseRequest, requestDigest: string, keys: JWTVerifyGetKey = keySet) {
+export async function verifyRunToken(token: string, request: Pick<ReleaseRequest, 'targetName' | 'operator'>, requestDigest: string, keys: JWTVerifyGetKey = keySet) {
   try {
     const { payload } = await jwtVerify(token, keys, { issuer, algorithms: ['RS256'], audience: `https://github.com/${repository}/release/${requestDigest}`, clockTolerance: policy.clockSkewSeconds, maxTokenAge: '5m' });
     const claims = z.object({ repository_id: z.literal(policy.repositoryId), repository_owner_id: z.literal(policy.ownerId), repository: z.literal(repository),
@@ -191,8 +200,7 @@ export async function verifyRunToken(token: string, request: ReleaseRequest, req
   } catch { throw new LabError('AUTHORIZATION_REJECTED', 'Protected-run identity, request binding or token validity failed. Dispatch a new protected workflow.'); }
 }
 
-async function protectedRun(request: ReleaseRequest, requestDigest: string) {
-  checkRequest(request);
+export async function protectedRun(request: Pick<ReleaseRequest, 'targetName' | 'operator'>, requestDigest: string) {
   const urlText = process.env.ACTIONS_ID_TOKEN_REQUEST_URL, token = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
   if (!urlText || !token) throw new LabError('PROTECTED_RUN_REQUIRED', 'Apply is available only inside the protected Operate lab workflow. Local verification does not authorize a mutation.');
   const url = new URL(urlText);
@@ -221,11 +229,12 @@ export async function authorizeMutation(input: Operation) {
     || input.restoreRecord !== undefined) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'Command arguments conflict with the resolved release request.');
   if ((input.durationSeconds !== undefined && input.durationSeconds < 60) || (input.maxRequests !== undefined && input.maxRequests < 120)
     || (input.rate !== undefined && input.rate !== 2) || (input.maxDurationSeconds !== undefined && input.maxDurationSeconds < 90)) throw new LabError('STAGING_EVIDENCE_INSUFFICIENT', 'Apply cannot weaken the required observation window or request budget.');
+  checkRequest(request);
   const identity = await protectedRun(request, verified.requestDigest);
   const canonical: Operation = { ...input, image: request.image, sourceSha: request.sourceSha, changeReference: request.changeReference, durationSeconds: 60, maxDurationSeconds: 90, rate: 2, maxRequests: 120 };
   if (request.operation === 'rollback') { canonical.deploymentId = request.rollbackDeploymentId!; canonical.restoreRecord = verified.restoreRecord!; }
   return {
-    request: canonical, expectedConfiguration: request.configurationFingerprint,
+    request: canonical, expectedConfiguration: request.configurationFingerprint, expectedFlagDigest: request.flag?.digest,
     decision: { outcome: 'authorized', requestDigest: verified.requestDigest, policyDigest, target: request.targetName, image: request.image, identity },
     saveEvidence: async (directory: string) => {
       await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -241,7 +250,11 @@ export async function authorizeMutation(input: Operation) {
     assertCurrent: async () => {
       if (sha256((await boundedFile(input.releaseDir!, 'release-request.json')).bytes) !== verified.requestDigest) throw new LabError('RELEASE_ATTACHMENT_REJECTED', 'The approved request changed before mutation.');
       for (const attachment of request.attachments) if (sha256((await boundedFile(input.releaseDir!, attachment.name)).bytes) !== attachment.sha256) throw new LabError('RELEASE_ATTACHMENT_REJECTED', 'Approved evidence changed before mutation.');
+      checkRequest(request);
       await protectedRun(request, verified.requestDigest);
+      if (!request.flag) throw new LabError('FLAG_PROOF_REQUIRED', 'Resolve a request bound to the current managed flag state.');
+      const flag = await new LaunchDarkly(process.env.LD_READ_TOKEN ?? '', undefined, request.targetName).snapshot();
+      if (flag.digest !== request.flag.digest || (request.operation === 'deploy' && request.targetName === 'live' && flag.stage !== 'off')) throw new LabError('FLAG_STATE_CHANGED', 'Managed flag state changed or live exposure is not off. Resolve a new request.');
       if (Date.now() >= verified.eligibilityExpiresAt) throw new LabError('STAGING_EVIDENCE_STALE', 'Evidence expired before mutation. Resolve a fresh request.');
     },
   };
@@ -256,4 +269,11 @@ export function createEnvelope(record: EvidenceRecord, request: ReleaseRequest, 
   // applying promotion freshness to a just-completed live observation.
   checkObservation(envelope, { ...request, rollbackDeploymentId: record.deploymentId }, true);
   return envelope;
+}
+
+/** Version 2 adds current flag configuration and observed variation coverage. */
+export function createControlledEnvelope(record: EvidenceRecord, request: ReleaseRequest, requestDigest: string, featureProof: FeatureProof): ControlledDeploymentEvidence {
+  const baseline = createEnvelope(record, request, requestDigest);
+  checkFeatureProof(featureProof, { sourceSha: request.sourceSha, deploymentId: record.deploymentId!, targetName: record.targetName, target: record.target, image: request.image, configurationFingerprint: request.configurationFingerprint }, 'any');
+  return controlledDeploymentEvidenceSchema.parse({ ...baseline, schemaVersion: 2, featureProof, context: { ...baseline.context, notEvaluated: ['Broad semantic correctness', 'Unobserved clients', 'Production identities and service-level objectives'] } });
 }

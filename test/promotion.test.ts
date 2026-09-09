@@ -1,3 +1,4 @@
+import { featureFixture } from './helpers/feature-fixture.js';
 import { expect, it, vi } from 'vitest';
 import { execute } from '../tools/operations.js';
 import type { Hosting } from '../tools/railway.js';
@@ -60,7 +61,8 @@ async function fixture(target: 'staging' | 'live' = 'live') {
   if (target === 'live') {
     const proof = evidence(); proof.context.operator = operator;
     proof.context.requestDigest = sha256(serializedRequest(stagingObservationRequest({ ...manifest, attachments: [{ name: 'image.bundle.jsonl', sha256: sha256(files['image.bundle.jsonl']!) }] })));
-    files['staging-evidence.json'] = JSON.stringify(proof); files['staging.bundle.jsonl'] = 'authenticated observation fixture';
+    const featureProof = featureFixture({ sourceSha: source, deploymentId: proof.record.deploymentId!, image, targetName: 'staging', target: policy.targets.staging, configurationFingerprint: policy.configurationFingerprints.staging }, 'internal');
+    files['staging-evidence.json'] = JSON.stringify({ ...proof, schemaVersion: 2, featureProof }); files['staging.bundle.jsonl'] = 'authenticated observation fixture';
   }
   for (const [name, bytes] of Object.entries(files)) { await writeFile(join(root, name), bytes); manifest.attachments.push({ name: name as ReleaseRequest['attachments'][number]['name'], sha256: sha256(bytes) }); }
   await writeFile(join(root, 'release-request.json'), JSON.stringify(manifest));
@@ -177,4 +179,27 @@ it('creates a policy-valid request even when successive wall-clock reads cross a
     expect(() => checkRequest(value, Date.parse(value.expiresAt) - 1)).not.toThrow();
     expect(() => checkRequest(value, Date.parse(value.expiresAt))).toThrow();
   } finally { vi.restoreAllMocks(); vi.useRealTimers(); }
+});
+
+import capturedFlag from './fixtures/launchdarkly-off.json' with {type:'json'};
+import { flagSnapshot } from '../tools/launchdarkly.js';
+it('refuses a fabricated managed-flag digest or a flag from another deployment target',()=>{
+ const value=request('live');value.flag=flagSnapshot(capturedFlag,'live');expect(()=>checkRequest(value)).not.toThrow();
+ value.flag.state.on=true;expect(()=>checkRequest(value)).toThrow();
+ value.flag=flagSnapshot(capturedFlag,'staging');expect(()=>checkRequest(value)).toThrow();
+});
+it('projects a read-only staging request whose feature proof independently binds its staging flag',()=>{
+ const value=request('live');value.flag=flagSnapshot(capturedFlag,'live');
+ const staged=stagingObservationRequest(value);expect(staged.flag).toBeUndefined();expect(()=>checkRequest(staged)).not.toThrow();
+});
+
+it('explicitly refuses legacy rollback evidence before selecting an incompatible recovery subject',async()=>{
+ const {root,manifest}=await fixture('staging');
+ const baseline=evidence('staging');
+ manifest.operation='rollback';manifest.rollbackDeploymentId=baseline.record.deploymentId;
+ const files={'recovery-evidence.json':JSON.stringify(baseline),'recovery.bundle.jsonl':'authenticated legacy observation','restore-record.json':JSON.stringify(baseline.record)};
+ for(const[name,bytes]of Object.entries(files)){await writeFile(join(root,name),bytes);manifest.attachments.push({name:name as ReleaseRequest['attachments'][number]['name'],sha256:sha256(bytes)});}
+ await writeFile(join(root,'release-request.json'),JSON.stringify(manifest));
+ vi.mocked(verifyArtifact).mockImplementation(async input=>({runId:input.workflow==='image.yml'?'10':'15',runAttempt:'1',statements:[]}));
+ await expect(verifyRelease(root)).rejects.toMatchObject({code:'FEATURE_PROOF_REQUIRED'});
 });

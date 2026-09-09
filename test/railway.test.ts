@@ -79,3 +79,13 @@ it('keeps a false rollback acknowledgment unresolved without retrying it', async
     .rollback(captured.deploymentResponse.data.deployment.id)).rejects.toMatchObject({ code: 'ROLLBACK_UNCONFIRMED', outcome: 'unknown_outcome' });
   expect(transport).toHaveBeenCalledOnce();
 });
+
+it('binds SDK key identity and environment mapping without exposing the credential',async()=>{
+ const snapshot=structuredClone(captured.snapshotResponse);
+ const vars=snapshot.data.variables as Record<string,string>;
+ vars.LD_SDK_KEY='sdk-fixture-first';vars.LD_PROJECT_KEY='default';vars.LD_ENVIRONMENT_KEY='test';vars.LD_FLAG_KEY='catalog-ranked-search';
+ const transport=vi.fn<typeof fetch>(async()=>Response.json(snapshot));const client=new Railway('test-token',captured.target,transport);
+ const first=await client.snapshot();expect(JSON.stringify(first)).not.toContain('sdk-fixture-first');
+ vars.LD_SDK_KEY='sdk-fixture-wrong-environment';expect((await client.snapshot()).configurationFingerprint).not.toBe(first.configurationFingerprint);
+ vars.LD_SDK_KEY='sdk-fixture-first';vars.LD_ENVIRONMENT_KEY='production';expect((await client.snapshot()).configurationFingerprint).not.toBe(first.configurationFingerprint);
+});
