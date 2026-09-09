@@ -33,6 +33,12 @@ export const releaseRequestSchema = z.object({
 }).strict().refine(value => new Set(value.attachments.map(item => item.name)).size === value.attachments.length, 'Duplicate attachments are not allowed.')
   .refine(value => (value.operation === 'rollback') === (value.rollbackDeploymentId !== null), 'Rollback requires its exact earlier deployment.');
 export type ReleaseRequest = z.infer<typeof releaseRequestSchema>;
+export function stagingObservationRequest(request: ReleaseRequest): ReleaseRequest {
+  return releaseRequestSchema.parse({ ...request, operation: 'observe', targetName: 'staging', target: policy.targets.staging,
+    configurationFingerprint: policy.configurationFingerprints.staging, rollbackDeploymentId: null,
+    attachments: request.attachments.filter(attachment => attachment.name === 'image.bundle.jsonl') });
+}
+export const serializedRequest = (request: ReleaseRequest) => `${JSON.stringify(releaseRequestSchema.parse(request), null, 2)}\n`;
 export const deploymentEvidenceSchema = z.object({
   schemaVersion: z.literal(1), kind: z.literal('deployment-observation'), record: recordSchema,
   context: z.object({
@@ -148,6 +154,8 @@ export async function verifyRelease(directory: string) {
     const verified = await verifyArtifact({ subject: envelope.path, bundle: required(`${prefix}.bundle.jsonl`).path, workflow: 'operate.yml', sourceSha: candidate.context.operator.sourceSha });
     const evidence = deploymentEvidenceSchema.parse(JSON.parse(envelope.bytes.toString()));
     if (verified.runId !== evidence.context.operator.runId || verified.runAttempt !== evidence.context.operator.runAttempt) throw new LabError('PROVENANCE_REJECTED', 'Observation signer does not match its claimed run.');
+    if (!recovery && (fingerprint(evidence.context.operator) !== fingerprint(request.operator)
+      || evidence.context.requestDigest !== sha256(serializedRequest(stagingObservationRequest(request))))) throw new LabError('STAGING_REQUEST_MISMATCH', 'Staging proof belongs to another promotion request. Resolve and observe this exact request again.');
     await assertProducer(evidence.context.operator, 'operate.yml', !recovery && evidence.context.operator.runId === request.operator.runId && evidence.context.operator.runAttempt === request.operator.runAttempt);
     const observedUntil = checkObservation(evidence, request, recovery);
     if (!recovery) eligibilityExpiresAt = Math.min(eligibilityExpiresAt, observedUntil + policy.maxEvidenceAgeSeconds * 1000);

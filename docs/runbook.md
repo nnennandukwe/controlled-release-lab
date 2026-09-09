@@ -128,6 +128,10 @@ Only after the staging-proof job succeeds can the workflow finalize the immutabl
 live request and ask for live approval. Inspect the resolved digest, source, target,
 configuration, policy, change reference, expiry, and request hash in that run.
 An approval for a different run or request cannot authorize this mutation.
+The signed staging proof must also match the same operator run and the canonical
+staging-observation projection of that request, including its change reference,
+issuance/expiry, build, policy and image-bundle hash. A fresh proof transplanted
+from another request is refused even when the image is identical.
 
 The request expires after 30 minutes. Evidence must contain at least 120 distinct
 successful requests over at least 60 seconds, with consistent source, deployment,

@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach } from 'vitest';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { authorizeMutation, checkObservation, checkRequest, deploymentEvidenceSchema, policyDigest, releaseRequestSchema, verifyRelease, verifyRunToken, type ReleaseRequest } from '../tools/promotion.js';
+import { stagingObservationRequest, serializedRequest, authorizeMutation, checkObservation, checkRequest, deploymentEvidenceSchema, policyDigest, releaseRequestSchema, verifyRelease, verifyRunToken, type ReleaseRequest } from '../tools/promotion.js';
 import { verifyArtifact } from '../tools/attestation.js';
 import { sha256 } from '../tools/setup-verifier.js';
 
@@ -48,7 +48,7 @@ function githubFixture(url: string) {
   if (url.includes('deployment-branch-policies')) return { total_count: 1, branch_policies: [{ name: 'main', type: 'branch' }] };
   if (url.endsWith('/branches/main')) return { protected: true };
   if (url.includes('/environments/')) return { can_admins_bypass: false, protection_rules: [{ type: 'required_reviewers', reviewers: [{ type: 'User', reviewer: { id: Number(policy.ownerId) } }] }], deployment_branch_policy: { protected_branches: false, custom_branch_policies: true } };
-  if (url.includes('/jobs?')) return { total_count: 1, jobs: [{ name: 'operate', status: 'in_progress', conclusion: null, check_run_url: `https://api.github.com/repos/${policy.repository}/check-runs/30` }] };
+  if (url.includes('/jobs?')) return { total_count: 2, jobs: [{ name: 'staging-proof', status: 'completed', conclusion: 'success', check_run_url: `https://api.github.com/repos/${policy.repository}/check-runs/29` }, { name: 'operate', status: 'in_progress', conclusion: null, check_run_url: `https://api.github.com/repos/${policy.repository}/check-runs/30` }] };
   const isBuild = url.includes('/runs/10/');
   return { head_sha: isBuild ? source : operatorSource, head_branch: 'main', path: `.github/workflows/${isBuild ? 'image' : 'operate'}.yml`, event: 'workflow_dispatch', run_attempt: 1,
     status: url.includes('/runs/20/') ? 'in_progress' : 'completed', conclusion: url.includes('/runs/20/') ? null : 'success', actor: { id: Number(policy.ownerId) } };
@@ -57,10 +57,14 @@ async function fixture(target: 'staging' | 'live' = 'live') {
   const root = await mkdtemp(join(tmpdir(), 'release-policy-')); roots.push(root);
   const manifest = request(target);
   const files: Record<string, string> = { 'image.bundle.jsonl': 'authenticated image fixture' };
-  if (target === 'live') { files['staging-evidence.json'] = JSON.stringify(evidence()); files['staging.bundle.jsonl'] = 'authenticated observation fixture'; }
+  if (target === 'live') {
+    const proof = evidence(); proof.context.operator = operator;
+    proof.context.requestDigest = sha256(serializedRequest(stagingObservationRequest({ ...manifest, attachments: [{ name: 'image.bundle.jsonl', sha256: sha256(files['image.bundle.jsonl']!) }] })));
+    files['staging-evidence.json'] = JSON.stringify(proof); files['staging.bundle.jsonl'] = 'authenticated observation fixture';
+  }
   for (const [name, bytes] of Object.entries(files)) { await writeFile(join(root, name), bytes); manifest.attachments.push({ name: name as ReleaseRequest['attachments'][number]['name'], sha256: sha256(bytes) }); }
   await writeFile(join(root, 'release-request.json'), JSON.stringify(manifest));
-  vi.mocked(verifyArtifact).mockImplementation(async input => ({ runId: input.workflow === 'image.yml' ? '10' : '15', runAttempt: '1', statements: [] }));
+  vi.mocked(verifyArtifact).mockImplementation(async input => ({ runId: input.workflow === 'image.yml' ? '10' : '20', runAttempt: '1', statements: [] }));
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => Response.json(githubFixture(String(url)))));
   return { root, manifest };
 }
@@ -139,4 +143,13 @@ it('GitHub-looking environment variables cannot authorize ordinary local apply',
   const { root } = await fixture('staging');
   vi.stubEnv('GITHUB_ACTIONS', 'true'); vi.stubEnv('ACTIONS_ID_TOKEN_REQUEST_URL', ''); vi.stubEnv('ACTIONS_ID_TOKEN_REQUEST_TOKEN', '');
   await expect(authorizeMutation({ operation: 'deploy', targetName: 'staging', target: policy.targets.staging, releaseDir: root, apply: true })).rejects.toMatchObject({ code: 'PROTECTED_RUN_REQUIRED' });
+});
+
+it.each(['change-reference', 'operator-run', 'issued-at'])('refuses fresh signed staging proof transplanted to another %s', async condition => {
+  const { root, manifest } = await fixture();
+  if (condition === 'change-reference') manifest.changeReference = 'DIFFERENT-CHANGE';
+  if (condition === 'operator-run') manifest.operator.runId = '21';
+  if (condition === 'issued-at') manifest.issuedAt = new Date(Date.parse(manifest.issuedAt) - 1000).toISOString();
+  await writeFile(join(root, 'release-request.json'), JSON.stringify(manifest));
+  await expect(verifyRelease(root)).rejects.toMatchObject({ code: 'STAGING_REQUEST_MISMATCH' });
 });

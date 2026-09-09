@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { checkedVerifier, sha256 } from './setup-verifier.js';
 import { changeReferenceSchema, loadRecord, LabError } from './evidence.js';
-import { policy, policyDigest, producerSchema, releaseRequestSchema, deploymentEvidenceSchema, verifyRelease, github, assertProducer, createEnvelope, type ReleaseRequest } from './promotion.js';
+import { policy, policyDigest, producerSchema, releaseRequestSchema, deploymentEvidenceSchema, verifyRelease, github, assertProducer, createEnvelope, stagingObservationRequest } from './promotion.js';
 import { execute } from './operations.js';
 import { Railway } from './railway.js';
 import { requireProtectedEnvironment } from './workflow-guard.js';
@@ -98,8 +98,7 @@ export async function stagingProof() {
   const directory = 'artifacts/staging-request';
   await mkdir(directory, { recursive: true });
   await copyFile('artifacts/release-base/image.bundle.jsonl', join(directory, 'image.bundle.jsonl'));
-  const request = await writeRequest(directory, { ...base, operation: 'observe', targetName: 'staging', target: policy.targets.staging,
-    configurationFingerprint: policy.configurationFingerprints.staging, attachments: await attachments(directory, ['image.bundle.jsonl']), rollbackDeploymentId: null });
+  const request = await writeRequest(directory, stagingObservationRequest(base));
   const verified = await verifyRelease(directory);
   const result = await execute({ operation: 'observe', targetName: 'staging', target: request.target, image: request.image, sourceSha: request.sourceSha, changeReference: request.changeReference, durationSeconds: 60, maxDurationSeconds: 90, rate: 2, maxRequests: 120 }, new Railway(process.env.RAILWAY_PROJECT_TOKEN ?? '', request.target), 'work/staging-proof');
   if (result.outcome !== 'verified') throw new LabError('STAGING_EVIDENCE_INSUFFICIENT', `Staging proof failed: ${result.reasonCodes.join(',')}. Inspect the preserved observation.`);
