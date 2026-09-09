@@ -421,6 +421,15 @@ Launches are limited to 10/sec, concurrency 2, five-second request timeouts,
 1,200 requests and a 180-second deadline. No resampling, deadline extension or
 threshold relaxation is permitted to obtain a pass.
 
+The public application separately admits at most 16 pending searches per process,
+with a 20-request burst replenished at 20/second. Excess traffic receives HTTP 429
+and `Retry-After: 1`; it is never queued. Client disconnect cancels the teaching
+timer, and permits release on success, failure or cancellation. The server caps
+connections at 64, requests per socket at 100, headers/requests/socket inactivity
+at five seconds, and keep-alive at one second. These fixed source settings require
+no runtime switches and remain above the declared operator workload. A 429 during
+acceptance is a failed sample, never permission to retry until green.
+
 Every sample retains actual value/index/reason, context, latency, response identity
 and result ordering. The operator requires zero functional/identity/evaluation
 errors and both aggregate and query/variation p95 no greater than
@@ -510,7 +519,7 @@ manual search. Stop before the next window would exceed the remaining budget.
    publication. This refreshes evidence without rebuilding E.
 2. Publish F once after PR 1 merges. Complete staging response-loss deployment
    recovery and its queued normal-query internal flag rehearsal. The declared
-   fixture adds an asynchronous 1,000 ms delay only when ranked search evaluates
+    fixture adds an asynchronous 1,000 ms delay only when ranked search evaluates
    true for normalized `workspace`. It changes no result membership or ranking,
    and has no runtime switch. These checks make no ranked challenge-latency claim.
 3. Promote F's exact digest with live off, retaining its live off baseline. Run

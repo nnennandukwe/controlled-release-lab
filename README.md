@@ -27,6 +27,12 @@ Normal queries and original search are unchanged. Its hosted failure and recover
 must be verified before a separate source repair produces candidate G. This
 implementation is not evidence that the hosted Build 4 release has completed.
 
+The public search handler admits at most 16 pending searches per process, with a
+20-request burst and replenishment of 20 requests/second. Excess requests receive
+429 and `Retry-After: 1`; no queue is retained. Disconnected clients cancel the
+teaching delay. These fixed application bounds leave the operator's two-concurrent,
+ten-per-second workload unchanged.
+
 ## Run locally
 
 Install Node 24.20.0 (the version in `.nvmrc`). Docker is needed only for container

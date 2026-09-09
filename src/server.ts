@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { search } from './search.js';
 import { applySearchTeachingFixture } from './search-teaching-fixture.js';
+import { createSearchAdmission } from './search-admission.js';
 import { loadBuildInfo } from './build-info.js';
 import { flagSettings, offlineFlags, syntheticContext, type FlagEvaluator } from './flags.js';
 
@@ -27,7 +28,8 @@ export async function createApplication(environment: NodeJS.ProcessEnv, flags?: 
     ['/app.js', 'app.js', 'text/javascript; charset=utf-8'],
     ['/styles.css', 'styles.css', 'text/css; charset=utf-8'],
   ].map(async ([path, file, type]) => [path!, { content: await readFile(new URL(file!, publicRoot)), type: type! }] as const)));
-  return createServer(async (request, response) => {
+  const acquireSearch = createSearchAdmission();
+  const server = createServer({ headersTimeout: 5000, requestTimeout: 5000, connectionsCheckingInterval: 1000, keepAliveTimeout: 1000, maxHeaderSize: 8192 }, async (request, response) => {
     const requestId = randomUUID();
     response.setHeader('X-Request-ID', requestId);
     response.setHeader('Cache-Control', 'no-store');
@@ -61,15 +63,31 @@ export async function createApplication(environment: NodeJS.ProcessEnv, flags?: 
         json(400, { error: { code: 'INVALID_CONTEXT', message: 'Provide one valid synthetic context key; cohort and eligibility are server-derived.' }, requestId });
         return;
       }
+      const release = acquireSearch();
+      if (!release) {
+        response.setHeader('Retry-After', '1');response.setHeader('Connection', 'close');
+        json(429, { error: { code: 'SEARCH_CAPACITY', message: 'Search is busy. Retry after one second.' }, requestId });
+        return;
+      }
+      const disconnected = new AbortController();
+      const abort = () => disconnected.abort();
+      response.once('close', abort);
       try {
         const evaluation = await evaluator.evaluate(context);
-        await applySearchTeachingFixture(query, evaluation.value);
+        if (disconnected.signal.aborted) return;
+        await applySearchTeachingFixture(query, evaluation.value, disconnected.signal);
         json(200, { query, results: search(query, evaluation.value), ranking: evaluation.value ? 'ranked' : 'original', evaluation, requestId, ...identity });
-      } catch { json(503, { error: { code: 'EVALUATION_UNAVAILABLE', message: 'Evaluation could not complete. Retry after service recovery.' }, requestId }); }
+      } catch {
+        if (!disconnected.signal.aborted) json(503, { error: { code: 'EVALUATION_UNAVAILABLE', message: 'Evaluation could not complete. Retry after service recovery.' }, requestId });
+      } finally { response.off('close', abort);release(); }
       return;
     }
     const asset = assets.get(url.pathname);
     if (asset) { response.writeHead(200, { 'Content-Type': asset.type }); response.end(asset.content); return; }
     json(404, { error: { code: 'NOT_FOUND', message: 'Open / to search the catalog.' }, requestId });
   });
+  server.maxConnections = 64;
+  server.maxRequestsPerSocket = 100;
+  server.setTimeout(5000, socket => socket.destroy());
+  return server;
 }
