@@ -16,7 +16,7 @@ export async function initializeState(root: string) {
 const runSchema = z.object({ id: z.number().int().positive(), run_attempt: z.number().int().positive(), display_title: z.string(), head_branch: z.string().nullable(), status: z.string() });
 const jobsSchema = z.object({ total_count: z.number(), jobs: z.array(z.object({
   name: z.string(), status: z.string(), conclusion: z.string().nullable(),
-  runner_id: z.number().int().nonnegative().optional(), runner_name: z.string().nullable().optional(),
+  runner_id: z.number().int().nonnegative().nullable().optional(), runner_name: z.string().nullable().optional(),
   steps: z.array(z.object({ name: z.string(), status: z.string(), conclusion: z.string().nullable() })),
 })) });
 
