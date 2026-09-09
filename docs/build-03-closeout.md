@@ -161,8 +161,9 @@ of zero connections. The runtime has one SDK client per process and one replica
 per environment, targeting two steady service connections. No paid resources,
 plan changes, or expanded account roles were introduced during acceptance.
 
-Each successful run retains `lab-proof-<target>-<run>-1` and
-`lab-state-<target>-<run>-1` artifacts for 90 days. The proof contains the signed
+Each of the seven signed observation runs in the table retains
+`lab-proof-<target>-<run>-1` and `lab-state-<target>-<run>-1` artifacts for 90 days.
+Successful `doctor` runs retain state without a signed observation proof. The proof contains the signed
 observation and native attestation bundle; state includes raw samples, immutable
 attempts, and any unresolved locks. Local acceptance copies and native verification
 results are under the ignored `artifacts/build3-acceptance/` directory; they contain
