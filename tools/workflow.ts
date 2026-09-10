@@ -1,4 +1,6 @@
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { currentOperator } from './release-artifacts.js';
+import { enabledStageSchema } from './launchdarkly.js';
+import { appendFile, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -66,7 +68,7 @@ export function workflowArguments(environment: NodeJS.ProcessEnv): string[] {
   const operation = z.enum(['doctor', 'deploy', 'observe', 'rollback', 'reconcile', 'rehearse-recovery', 'expose', 'disable', 'observe-exposure', 'reconcile-exposure']).parse(environment.LAB_OPERATION);
   const args = [operation, '--target', z.enum(['staging', 'live']).parse(environment.LAB_TARGET)];
   const exposure = ['expose', 'disable', 'observe-exposure', 'reconcile-exposure'].includes(operation);
-  if (operation === 'expose') args.push('--stage', z.enum(['internal', '5']).parse(environment.LAB_STAGE));
+  if (operation === 'expose') args.push('--stage', enabledStageSchema.parse(environment.LAB_STAGE));
   if (environment.LAB_REHEARSE_RESPONSE_LOSS === 'true') args.push('--rehearse-response-loss');
   if (!exposure && environment.LAB_CHANGE_REFERENCE) args.push('--change-reference', environment.LAB_CHANGE_REFERENCE);
   if (!exposure && operation !== 'doctor' && environment.LAB_MAX_DURATION_SECONDS !== undefined) {
@@ -93,9 +95,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       await appendFile(output, `previous_run=${previous.runId}\nprevious_artifact=${previous.artifactName}\n`);
     } else if (process.argv[2] === 'run') {
       await initializeState('work');
+      // This derived pointer must never survive a failed new invocation.
+      await rm('work/last-result.json', { force: true });
+      const operator = currentOperator();
       const output: string[] = [];
       process.exitCode = await runCli(workflowArguments(process.env), process.env, text => { output.push(text); process.stdout.write(text); });
-      await writeFile('work/last-result.json', output.join(''), { mode: 0o600 });
+      await writeFile('work/last-result.json', JSON.stringify({ ...JSON.parse(output.join('')), operator, operation: process.env.LAB_OPERATION }), { flag: 'wx', mode: 0o600 });
     } else throw new Error('Use prepare or run.');
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : 'Workflow failed'}\n`);

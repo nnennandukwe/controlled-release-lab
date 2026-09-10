@@ -10,14 +10,14 @@ on:
       stage:
         description: Protected exposure stage (expose only)
         type: choice
-        options: [internal, '5']
+        options: [internal, '5', '25', '100']
         default: internal
       rehearse_response_loss:
         description: Staging internal exposure only; discard one flag response and verify read-only recovery
         type: boolean
         default: false
       exposure_run:
-        description: Exact successful internal exposure run (5 percent expansion)
+        description: 'Exact successful predecessor run: internal for 5%, 5% for 25%, 25% for 100%'
         type: string
       exposure_attempt:
         type: string
@@ -257,7 +257,8 @@ jobs:
           LD_MANAGEMENT_TOKEN: ${{ (inputs.operation == 'expose' || inputs.operation == 'disable') && inputs.apply && secrets.LD_MANAGEMENT_TOKEN || '' }}
           LAB_CONFIG_JSON: ${{ vars.LAB_CONFIG_JSON }}
           LAB_RELEASE_DIR: ${{ needs.resolve.outputs.has_request == 'true' && 'work/release/current' || '' }}
-      - name: Preserve evidence and unresolved operation locks
+      - id: state
+        name: Preserve evidence and unresolved operation locks
         if: always() && steps.operation.outcome != 'skipped'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -266,21 +267,25 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - id: seal
-        if: steps.operation.outcome == 'success' && inputs.operation != 'doctor'
+        name: Seal observation evidence
+        if: always() && !cancelled() && steps.state.outcome == 'success' && inputs.operation != 'doctor' && (steps.operation.outcome == 'success' || (steps.operation.outcome == 'failure' && contains(fromJSON('["expose","disable","observe-exposure","reconcile-exposure"]'), inputs.operation)))
         run: node --import tsx tools/release-workflow.ts seal
       - id: attest
-        if: steps.seal.outputs.sign == 'true'
+        name: Attest observation evidence
+        if: always() && !cancelled() && steps.seal.outcome == 'success' && steps.seal.outputs.sign == 'true'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: ${{ steps.seal.outputs.subject_path }}
-      - if: steps.seal.outputs.sign == 'true'
+      - id: bundle
+        if: always() && !cancelled() && steps.attest.outcome == 'success' && steps.seal.outputs.sign == 'true'
         run: cp "$BUNDLE" artifacts/observation/evidence.bundle.jsonl
         env:
           BUNDLE: ${{ steps.attest.outputs.bundle-path }}
-      - if: steps.seal.outputs.sign == 'true'
+      - name: Upload signed observation
+        if: always() && !cancelled() && steps.bundle.outcome == 'success' && steps.seal.outputs.sign == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: lab-proof-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: lab-${{ steps.seal.outputs.artifact_kind || 'proof' }}-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/observation/
           if-no-files-found: error
           retention-days: 90

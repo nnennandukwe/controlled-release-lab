@@ -133,7 +133,10 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     }
     if (flags) {
       const subject = { sourceSha: record.requestedSourceSha!, deploymentId: record.deploymentId!, targetName: request.targetName, target: request.target, image: record.requestedImage!, configurationFingerprint: record.configurationFingerprint! };
-      const proof = await measureFeatureProof(hosting, flags, subject, measured.p95Ms!, sample => journal.append('feature-request', sample), transport);
+      // Deployment observations use an absolute per-query bound without claiming
+      // a paired baseline. Exposures later derive each baseline from the actual
+      // query measurements in their authenticated off deployment proof.
+      const proof = await measureFeatureProof(hosting, flags, subject, measured.p95Ms!, sample => journal.append('feature-request', sample), transport, null);
       record.observations.push({ phase: 'feature-proof', proof });
       if (proof.before.digest !== flagBefore!.digest) throw new LabError('FLAG_STATE_CHANGED', 'Flag state changed during the baseline window.');
       checkFeatureProof(proof, subject, request.operation === 'deploy' && request.targetName === 'live' ? 'off' : 'any');

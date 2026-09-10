@@ -3,7 +3,11 @@ import exposurePolicy from '../config/exposure-policy.json' with { type: 'json' 
 import { FLAG_KEY } from '../src/flags.js';
 import { fingerprint, LabError } from './evidence.js';
 
-export const stageSchema = z.enum(['off', 'internal', '5']);
+const declaredStages = z.tuple([z.literal('off'), z.literal('internal'), z.literal('5'), z.literal('25'), z.literal('100')]).safeParse(exposurePolicy.stages);
+if (!declaredStages.success) throw new LabError('EXPOSURE_STAGE_POLICY_UNSUPPORTED', 'Exposure stages are fixed to off, internal, 5, 25, 100. Update transition guards, targeting and operator surfaces together before changing stage policy.');
+export const stageSchema = z.enum(declaredStages.data);
+export const enabledStageSchema = stageSchema.exclude(['off']);
+export const predecessor: Record<z.infer<typeof enabledStageSchema>, ExposureStage> = { internal: 'off', '5': 'internal', '25': '5', '100': '25' };
 export type ExposureStage = z.infer<typeof stageSchema>;
 const clauseSchema = z.object({ _id: z.string().optional(), attribute: z.string(), contextKind: z.literal('user'), op: z.literal('in'), values: z.array(z.union([z.string(), z.boolean()])), negate: z.literal(false) }).strict();
 const rolloutSchema = z.object({ contextKind: z.literal('user'), bucketBy: z.literal('key').optional(), variations: z.array(z.object({ variation: z.number().int(), weight: z.number().int() }).strict()), kind: z.literal('rollout').optional() }).strict();
@@ -21,10 +25,14 @@ const percentageRule = { clauses: [{ attribute: 'cohort', contextKind: 'user', o
 function targetingRules(rules: FlagState['rules']) {
   return rules.map(({ _id, ...rule }) => ({ ...rule, ...(rule.rollout ? { rollout: { contextKind: rule.rollout.contextKind, bucketBy: rule.rollout.bucketBy ?? 'key', variations: rule.rollout.variations } } : {}), clauses: rule.clauses.map(({ _id, ...clause }) => clause) }));
 }
-function definitionStage(state: FlagState): 'internal' | '5' {
+function percentageTargeting(stage: '5' | '25' | '100') {
+  const weight = Number(stage) * 1000;
+  return { ...percentageRule, rollout: { ...percentageRule.rollout, variations: [{ variation: 1, weight }, { variation: 0, weight: 100000 - weight }] } };
+}
+function definitionStage(state: FlagState): Exclude<ExposureStage, 'off'> {
   const rules = fingerprint(targetingRules(state.rules));
   if (rules === fingerprint([excludedRule, internalRule])) return 'internal';
-  if (rules === fingerprint([excludedRule, internalRule, percentageRule])) return '5';
+  for (const stage of ['5', '25', '100'] as const) if (rules === fingerprint([excludedRule, internalRule, percentageTargeting(stage)])) return stage;
   throw new LabError('UNMANAGED_FLAG', 'Restore the reviewed synthetic targeting definition before operating this flag.');
 }
 /** Select and bind every managed field; provider metadata is not release authority. */
@@ -48,8 +56,14 @@ export function validateFlagSnapshot(input: unknown, target: 'staging' | 'live')
 export function desiredFlagState(before: FlagSnapshot, stage: ExposureStage): FlagState {
   stageSchema.parse(stage);
   if (stage === 'off') return { ...before.state, on: false };
-  if ((stage === 'internal' && before.stage !== 'off') || (stage === '5' && before.stage !== 'internal')) throw new LabError('EXPOSURE_TRANSITION', 'Only off to internal, internal to 5%, and independently authorized disable transitions are allowed.');
-  return flagStateSchema.parse({ ...before.state, on: true, rules: [...before.state.rules.slice(0, 2), ...(stage === '5' ? [percentageRule] : [])] });
+  if (before.stage !== predecessor[stage]) throw new LabError('EXPOSURE_TRANSITION', 'Use off -> internal -> 5 -> 25 -> 100, or independently authorize disable.');
+  const rules = before.state.rules.slice(0, 2);
+  if (stage !== 'internal') {
+    const percentage = percentageTargeting(stage);
+    const existing = before.state.rules[2];
+    rules.push(existing ? { ...existing, rollout: { ...existing.rollout!, variations: percentage.rollout.variations } } : ruleSchema.parse(percentage));
+  }
+  return flagStateSchema.parse({ ...before.state, on: true, rules });
 }
 
 /** Fixed provider/flag; Reader for reads and a separately supplied Writer for one conditional effect. */

@@ -42,7 +42,7 @@ export async function resolveRelease(environment: NodeJS.ProcessEnv = process.en
     await copyFile('artifacts/recovery/evidence.bundle.jsonl', join(base, 'recovery.bundle.jsonl'));
     // Candidate selectors only; verification of the envelope happens before apply.
     restore = anyDeploymentEvidenceSchema.parse(JSON.parse(await readFile(join(base, 'recovery-evidence.json'), 'utf8')));
-    if (restore.schemaVersion !== 2) throw new LabError('FEATURE_PROOF_REQUIRED', 'Legacy deployment evidence cannot select recovery under the new SDK configuration. Use a compatible version 2 baseline; retain version 1 as history.');
+    if (restore.schemaVersion !== 3) throw new LabError('FEATURE_PROOF_REQUIRED', 'Legacy deployment evidence cannot select recovery under the current exposure policy. Use a compatible version 3 baseline; retain versions 1 and 2 as history.');
     if (environment.LAB_DEPLOYMENT && environment.LAB_DEPLOYMENT !== restore.record.deploymentId) throw new LabError('RECOVERY_EVIDENCE_REJECTED', 'Selected deployment differs from the saved observation.');
     if (environment.LAB_RESTORE_ATTEMPT && environment.LAB_RESTORE_ATTEMPT !== restore.record.attemptId) throw new LabError('RECOVERY_EVIDENCE_REJECTED', 'Selected attempt differs from the saved observation.');
     await jsonFile(join(base, 'restore-record.json'), restore.record);

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,4 +39,18 @@ test.each([
     expect(result.status).toBe(1);
     expect(result.stderr).toBe('Release preparation failed. Check validated inputs, artifact availability and protected workflow configuration.\n');
   });
+});
+
+test('a failed new operator invocation removes the previous result before validating inputs', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'workflow-stale-result-'));
+  try {
+    mkdirSync(join(directory, 'work'));
+    writeFileSync(join(directory, 'work/last-result.json'), JSON.stringify({ outcome: 'verified', recordPath: 'old-record.json' }));
+    const result = spawnSync(process.execPath, ['--import', loader, fileURLToPath(new URL('../tools/workflow.ts', import.meta.url)), 'run'], {
+      cwd: directory, encoding: 'utf8', timeout: 15000,
+      env: { PATH: process.env.PATH, GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '2', GITHUB_RUN_ATTEMPT: '1', LAB_OPERATION: 'expose', LAB_TARGET: 'live', LAB_STAGE: '75' },
+    });
+    expect(result.status).toBe(1);expect(result.error).toBeUndefined();
+    expect(existsSync(join(directory, 'work/last-result.json'))).toBe(false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { observeExposure, type ExposureSample } from '../tools/exposure-observe.js';
-import { featureFixture } from './helpers/feature-fixture.js';
+import { featureFixture, baselineQueries } from './helpers/feature-fixture.js';
 import { policy } from '../tools/promotion.js';
 
 vi.mock('node:timers/promises', () => ({ setTimeout: (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds)) }));
@@ -22,7 +22,7 @@ it('holds incomplete coverage at the deadline even when completed requests pass 
     active--;
     return Response.json({ ...sample, results: sample.results.map(id => ({ id })) });
   };
-  const observing = observeExposure(subject.target.url, proof.before, subject, 20, async sample => { retained.push(sample); }, transport);
+  const observing = observeExposure(subject.target.url, proof.before, subject, 20, async sample => { retained.push(sample); }, transport, baselineQueries);
   await vi.runAllTimersAsync();
   const measured = await observing;
   expect(peak).toBe(2);
