@@ -35,14 +35,13 @@ it('caps each client at four pending searches and twelve per second without cons
   } finally { clock.mockRestore(); }
 });
 
-it('bounds idle client storage and never expires occupied permits', () => {
+it('reclaims idle client storage before its cap can deny new arrivals and never expires occupied permits', () => {
   let now = 0;const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
   try {
     const acquire = createSearchAdmission();
-    for (let index = 0; index < 1024; index++) { now = Math.floor(index / 20) * 1000;const release = acquire(`client-${index}`);expect(release).toBeTypeOf('function');release!(); }
-    expect(acquire('overflow')).toBeUndefined();const existing = acquire('client-0');expect(existing).toBeTypeOf('function');existing!();
-    now = 120_000;const held = Array.from({ length: 4 }, () => acquire('held'));expect(held.every(Boolean)).toBe(true);
-    now = 180_001;expect(acquire('held')).toBeUndefined();expect(acquire('new')).toBeTypeOf('function');held.forEach(release => release!());
+    for (let index = 0; index < 2500; index++) { now = Math.floor(index / 20) * 1000;const release = acquire(`client-${index}`);expect(release).toBeTypeOf('function');release!(); }
+    now += 30_001;const held = Array.from({ length: 4 }, () => acquire('held'));expect(held.every(Boolean)).toBe(true);
+    now += 30_001;expect(acquire('held')).toBeUndefined();expect(acquire('new')).toBeTypeOf('function');held.forEach(release => release!());
   } finally { clock.mockRestore(); }
 });
 

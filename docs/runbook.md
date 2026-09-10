@@ -459,7 +459,9 @@ check ingress through the configured Railway HTTP domain. Do not add a direct TC
 proxy or place an unverified proxy in front of this contract. Recheck the ingress
 mapping before hosted acceptance; local header tests do not verify the provider.
 At most 1,024 client quota entries are retained in memory; released idle entries
-expire on the next admitted-capacity check after 60 seconds. Active entries are
+expire on the next admitted-capacity check after 30 seconds. This leaves room
+under the 1,024-entry cap for the global 20/second arrival rate, burst 20, active
+clients and temporarily throttled clients. Active entries are
 never evicted. Addresses are not added to evidence or application responses.
 Shared egress/NAT clients share a quota; this is bounded demo admission, not a
 general guarantee against distributed denial of service.

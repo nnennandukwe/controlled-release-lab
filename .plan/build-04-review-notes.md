@@ -101,3 +101,29 @@ remediation-recommended findings. The earlier tool statuses remained open.
   separately from the recomputed `featureAssessment`. The latter does not claim
   to recompute cross-stage retention without predecessor attachments, and neither
   can authorize expansion. Raw samples remain in the retained artifact.
+
+## Final local review and first PR review
+
+A local review at `7df212d98edff22ab4798fffa85f5d2f1e9d7652` lost its WebSocket
+connection and failed with `getaddrinfo ENOTFOUND sdk.qodo.ai`. That attempt is a
+runtime failure, not an eligibility skip or passing review. DNS recovered; the
+unchanged revision's full deep retry completed with complete file coverage, no
+new findings and unresolved specification references. Prior open statuses persisted.
+
+The carried-forward advisory `ece2a816-abab-40b9-a2ee-ecf443f6b513` recommends a
+project-owned wrapper for Node request types. No wrapper was added: the identity
+helper is an HTTP adapter with a structural parameter that accepts plain test
+objects, and the public Node type import is erased at runtime. A server framework
+migration is outside this fixed-Node change. This is a recorded assessment, not a
+tool dismissal.
+
+PR 12's completed review `1076759` covered that exact head and marked the earlier
+capacity, cancellation, query-baseline and diagnostic-output findings implemented.
+It retained the documented hosted-recovery and permanent-SDK-stall findings, and
+added `24fcc419-19e7-4367-888c-1f3b36157841`, New clients lose search access.
+Confirmed: with 60-second retention, 1,024 distinct clients could fill the quota
+table at the permitted global rate. A test first reproduced rejection, then verifies
+2,500 distinct arrivals at 20/second after shortening idle retention to 30 seconds.
+The bounded arrival rate, burst, active clients and briefly throttled clients
+fit below the unchanged 1,024-entry cap. Active entries still cannot expire; rate, concurrency and SDK limits
+are unchanged. No hosted traffic or additional resource was needed for this test.

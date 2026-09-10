@@ -26,7 +26,9 @@ export function createSearchAdmission() {
     tokens = Math.min(20, tokens + (now - updatedAt) * 20 / 1000);
     updatedAt = now;
     if (active >= capacity || tokens < 1) return undefined;
-    for (const [key, client] of clients) if (client.active === 0 && now - client.updatedAt >= 60_000) clients.delete(key);
+    // Thirty-second expiry leaves headroom under 1,024 entries at the global
+    // rate, including the burst and active or temporarily throttled clients.
+    for (const [key, client] of clients) if (client.active === 0 && now - client.updatedAt >= 30_000) clients.delete(key);
     let client = clients.get(clientKey);
     if (!client) {
       if (clients.size >= 1024) return undefined;
