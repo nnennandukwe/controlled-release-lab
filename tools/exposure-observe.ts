@@ -8,7 +8,11 @@ import { sha256 } from './setup-verifier.js';
 import type { ExposureStage, FlagSnapshot } from './launchdarkly.js';
 
 export const exposurePolicy = config;
-export const querySchema = z.enum(['keyboard', 'compact', 'workspace']);
+// These are fixed workload roles, not an extensible list. Changing one also
+// requires changing expected results, baseline fields and challenge coverage.
+const declaredQueries = z.tuple([z.literal('keyboard'), z.literal('compact'), z.literal('workspace')]).safeParse(config.queries);
+if (!declaredQueries.success) throw new LabError('EXPOSURE_QUERY_POLICY_UNSUPPORTED', 'Query roles are fixed to keyboard, compact, workspace. Update the collector, baseline schema and assessor together before changing the query policy.');
+export const querySchema = z.enum(declaredQueries.data);
 export type SearchQuery = z.infer<typeof querySchema>;
 export const queryBaselineSchema = z.object({ keyboard: z.number().finite().nonnegative(), compact: z.number().finite().nonnegative(), workspace: z.number().finite().nonnegative() }).strict();
 export type QueryBaseline = z.infer<typeof queryBaselineSchema>;

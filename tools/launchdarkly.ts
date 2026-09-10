@@ -3,7 +3,9 @@ import exposurePolicy from '../config/exposure-policy.json' with { type: 'json' 
 import { FLAG_KEY } from '../src/flags.js';
 import { fingerprint, LabError } from './evidence.js';
 
-export const stageSchema = z.enum(['off', 'internal', '5', '25', '100']);
+const declaredStages = z.tuple([z.literal('off'), z.literal('internal'), z.literal('5'), z.literal('25'), z.literal('100')]).safeParse(exposurePolicy.stages);
+if (!declaredStages.success) throw new LabError('EXPOSURE_STAGE_POLICY_UNSUPPORTED', 'Exposure stages are fixed to off, internal, 5, 25, 100. Update transition guards, targeting and operator surfaces together before changing stage policy.');
+export const stageSchema = z.enum(declaredStages.data);
 export const enabledStageSchema = stageSchema.exclude(['off']);
 export const predecessor: Record<z.infer<typeof enabledStageSchema>, ExposureStage> = { internal: 'off', '5': 'internal', '25': '5', '100': '25' };
 export type ExposureStage = z.infer<typeof stageSchema>;

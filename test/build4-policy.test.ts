@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { expect, it } from 'vitest';
-import { exposureSequence, assessExposure, originalQueryBaselines, type ExposureSample } from '../tools/exposure-observe.js';
+import { expect, it, vi } from 'vitest';
+import { exposurePolicy, exposureSequence, assessExposure, originalQueryBaselines, type ExposureSample } from '../tools/exposure-observe.js';
 import { desiredFlagState, type ExposureStage } from '../tools/launchdarkly.js';
 import { checkFeatureProof, legacyFeatureProofSchema } from '../tools/feature-proof.js';
 import { workflowArguments } from '../tools/workflow.js';
@@ -10,6 +10,18 @@ import { policy } from '../tools/promotion.js';
 const subject = { sourceSha: 'a'.repeat(40), deploymentId: randomUUID(), targetName: 'staging' as const,
   target: policy.targets.staging, image: `ghcr.io/${policy.repository}@sha256:${'b'.repeat(64)}`,
   configurationFingerprint: policy.configurationFingerprints.staging };
+
+it.each([['keyboard', 'compact'], ['keyboard', 'compact', 'workspace', 'desk'], ['keyboard', 'workspace', 'workspace']])('rejects incompatible declared query policy at module startup: %j', async (...queries) => {
+  vi.resetModules();vi.doMock('../config/exposure-policy.json', () => ({ default: { ...exposurePolicy, queries } }));
+  try { await expect(import('../tools/exposure-observe.js')).rejects.toThrow('Query roles are fixed'); }
+  finally { vi.doUnmock('../config/exposure-policy.json');vi.resetModules(); }
+});
+
+it('rejects stage policy edits that disagree with the implemented transition sequence', async () => {
+  vi.resetModules();vi.doMock('../config/exposure-policy.json', () => ({ default: { ...exposurePolicy, stages: ['off', 'internal', '5', '100'] } }));
+  try { await expect(import('../tools/launchdarkly.js')).rejects.toThrow('Exposure stages are fixed'); }
+  finally { vi.doUnmock('../config/exposure-policy.json');vi.resetModules(); }
+});
 
 it('predeclares a challenge query for the full population without widening the budget', () => {
   const sequence = exposureSequence('off');

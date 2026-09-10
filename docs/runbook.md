@@ -440,6 +440,14 @@ requests return controlled 503 responses until evaluation recovers, rather than
 accumulating abandoned SDK work. Readiness remains a process check, not proof of
 healthy flag evaluation.
 
+If evaluation never settles, the bounded SDK capacity intentionally stays
+unavailable; a timeout cannot cancel arbitrary SDK work. Retain the 503 samples
+and hold the release. Inspect SDK/provider health and separately authorize an
+application restart or native rollback, then verify provider state and a fresh
+complete workload. Do not reset counters while the underlying work remains alive,
+or interpret responsive readiness as recovery. No automatic evaluator replacement
+or restart is implemented by this lab.
+
 The existing hosted targets use Railway's public HTTP proxy. Client quotas use
 its `X-Real-IP` header; Railway documents that header and its staff confirms that
 the edge always overwrites it and public clients cannot reach the app directly.
@@ -455,6 +463,12 @@ expire on the next admitted-capacity check after 60 seconds. Active entries are
 never evicted. Addresses are not added to evidence or application responses.
 Shared egress/NAT clients share a quota; this is bounded demo admission, not a
 general guarantee against distributed denial of service.
+
+The policy query roles and stage order are fixed contracts. Startup rejects edits
+that disagree with `keyboard, compact, workspace` or `off, internal, 5, 25, 100`,
+instead of hashing a new declaration while silently running old gates. A future
+change must update collection, result expectations, baseline schemas and stage
+consumers together, and collect new evidence under its revised policy.
 
 Every sample retains actual value/index/reason, context, latency, response identity
 and result ordering. The operator requires zero functional/identity/evaluation

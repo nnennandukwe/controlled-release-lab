@@ -66,3 +66,21 @@ overwritten by the edge according to [Railway's staff confirmation](https://stat
 Local mode uses only the socket address. Missing/invalid hosted identity fails
 closed. This adds no resource, credential, dependency or runtime setting. Hosted
 ingress verification and the original failure/recovery acceptance remain pending.
+
+## Fourth review and policy declarations
+
+The fourth full deep review at `f8ce07ed27c99d6b0c6ef9fa5ca29e0739940517`
+reported complete file coverage with no skipped files; specification refs remained
+unresolved. It retained the earlier evaluator/client-quota finding statuses with
+their pre-fix descriptions. The current HTTP tests verify those fixes; these notes
+do not represent a Qodo dismissal or a clean tool verdict.
+
+| Finding | Assessment and disposition |
+|---|---|
+| `58dd18e3-ab34-4694-96bf-b588151c0db8`, Query policy edits leave gates unchanged, remediation recommended | Confirmed: changing the declared queries did not stop module startup. Added startup validation of the fixed query roles and derived the enum from that validated tuple. Added equivalent validation for the fixed stage order. Import tests first reproduced acceptance of incompatible declarations, then verify rejection. Changing the contract requires coordinated code/policy changes, rather than silently hashing ignored declarations. |
+| `1cf808d8-4323-42c5-a56f-21aee46e23d1`, Blocked rollout evidence expires, remediation recommended | Accepted retention limitation, explicitly specified by the approved plan: retain existing 90-day GitHub artifacts and document archival before expiry. The runbook requires operator archival of signed envelopes, bundles, state and referenced artifacts. Permanent storage and automated archival are not implemented or claimed. No new resource or unattended automation is authorized by this PR. |
+| `84a8ba14-9e0d-4dff-b974-b141afe91882`, Searches stay unavailable after stalls, action required | Deliberate failure boundary: if underlying SDK work never settles, safe evaluation capacity remains unavailable. Releasing counters while uncancellable work remains would allow unbounded abandoned work; discarding the unresolved work requires process isolation/replacement beyond this bounded fixture change. The pinned default SDK uses an in-memory feature store; permanent stall is exercised with an injected evaluator, not presented as observed hosted behavior. HTTP waits end within one second; per-client/global outstanding work stays bounded, and tests verify capacity recovers when work actually settles. The runbook now explicitly requires retained error evidence and separately authorized restart or rollback followed by fresh verification for a persistent stall. No self-healing or continued healthy service is claimed. |
+
+Retain the tool's open statuses and the code/behavior evidence for these assessed
+disagreements. Do not add new infrastructure, silently recycle unresolved work,
+or remove the disclosed fixture to obtain a nominally clean review.
