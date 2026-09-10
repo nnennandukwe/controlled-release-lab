@@ -65,11 +65,13 @@ it.each([{ stale: true }, { missingChecksum: true }])('the seal CLI rejects stal
 vi.mock('../tools/attestation.js', () => ({ repository: 'nnennandukwe/controlled-release-lab', issuer: 'https://token.actions.githubusercontent.com', verifyArtifact: async () => ({ runId: '20', runAttempt: '1', statements: [] }) }));
 afterEach(() => vi.unstubAllGlobals());
 
-it('authenticates diagnostics from a failed run only when its exact sealing steps succeeded', async () => {
+it.each([false, true])('authenticates diagnostics and retains the blocked decision independently of feature health, retentionHold=%s', async retentionHold => {
   const directory = await mkdtemp(join(tmpdir(), 'diagnostic-verify-'));
   let upload = 'success';
   try {
-    const envelope = createExposureDiagnostic(diagnosticFixture(), operator);
+    const record = diagnosticFixture();
+    if (retentionHold) { record.featureProof = featureFixture(record.featureProof.subject, '5');record.recoveryInstruction = 'Previously treated personas lost treatment. Independently authorize disable.'; }
+    const envelope = createExposureDiagnostic(record, operator);
     await writeFile(join(directory, 'exposure-diagnostic.json'), JSON.stringify(envelope));
     await writeFile(join(directory, 'evidence.bundle.jsonl'), 'native verifier test seam');
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
@@ -79,12 +81,12 @@ it('authenticates diagnostics from a failed run only when its exact sealing step
       return Response.json({ head_sha: operator.sourceSha, head_branch: 'main', path: '.github/workflows/operate.yml', event: 'workflow_dispatch', run_attempt: 1, status: 'completed', conclusion: 'failure' });
     }));
     const verified = await verifyExposureDiagnostic(directory, 'staging');
-    expect(verified.authorized).toBe(false);expect(verified.assessment.reasonCodes).toContain('QUERY_LATENCY_HOLD');
+    expect(verified.authorized).toBe(false);
     let stdout = '', stderr = '';
     expect(await runCli(['verify-diagnostic', '--target', 'staging', '--release-dir', directory], {}, text => { stdout += text; }, text => { stderr += text; })).toBe(0);
     const result = JSON.parse(stdout);
-    expect(result).toMatchObject({ outcome: 'diagnostic_authenticated', authorized: false, assessment: { reasonCodes: expect.arrayContaining(['QUERY_LATENCY_HOLD']) } });
-    expect(result.assessment.samples).toBeUndefined();expect(stderr).toContain('does not authorize mutation');
+    expect(result).toMatchObject({ outcome: 'diagnostic_authenticated', authorized: false, recordedOutcome: 'blocked', recordedReasonCodes: ['EXPOSURE_HOLD'], recoveryInstruction: record.recoveryInstruction, featureAssessment: { outcome: retentionHold ? 'verified' : 'blocked', reasonCodes: retentionHold ? [] : expect.arrayContaining(['QUERY_LATENCY_HOLD']) } });
+    expect(result.featureAssessment.samples).toBeUndefined();expect(stderr).toContain('does not authorize mutation');
     await expect(assertProducer(operator, 'operate.yml')).rejects.toThrow('did not complete successfully');
     expect(() => checkExposureEvidence(envelope, envelope.record.featureProof!.subject, 20, true, baselineQueries)).toThrow();
     await expect(verifyExposureDiagnostic(directory, 'live')).rejects.toMatchObject({ code: 'DIAGNOSTIC_REJECTED' });

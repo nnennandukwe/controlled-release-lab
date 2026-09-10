@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import { rehearseExposureRecovery } from '../tools/exposure-rehearsal.js';
+import { createExposureDiagnostic, inspectExposureDiagnostic } from '../tools/exposure-diagnostic.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -227,6 +228,9 @@ it('holds a cohort reshuffle even when the expanded population passes its indepe
  const result=await executeExposure(scenario.input,scenario.hosting,scenario.flags,join(scenario.root,'work'),scenario.transport);
  expect(result.outcome).toBe('blocked');expect(result.recoveryInstruction).toContain('Previously treated');
  expect(scenario.patches()).toBe(1);const record=await loadExposureRecord(result.recordPath);expect(()=>createExposureEnvelope(record,scenario.request.operator)).toThrow();
+ const diagnostic=inspectExposureDiagnostic(createExposureDiagnostic(record,scenario.request.operator));
+ expect(diagnostic.featureAssessment.outcome).toBe('verified');expect(diagnostic.recordedOutcome).toBe('blocked');
+ expect(diagnostic.recordedReasonCodes).toEqual(['EXPOSURE_HOLD']);expect(diagnostic.recoveryInstruction).toContain('Previously treated');
 },30000);
 
 it.each([

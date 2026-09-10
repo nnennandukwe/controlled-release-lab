@@ -96,8 +96,8 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       }
       if (operation === 'verify-diagnostic') {
         const verified = await verifyExposureDiagnostic(z.string().min(1).parse(values['release-dir']), targetName);
-        const { samples, ...assessment } = verified.assessment;
-        stdout(`${JSON.stringify({ outcome: 'diagnostic_authenticated', authorized: false, evidenceDigest: verified.evidenceDigest, recordedOutcome: verified.envelope.record.outcome, assessment, target: targetName })}\n`);
+        const { samples, ...featureAssessment } = verified.featureAssessment;
+        stdout(`${JSON.stringify({ outcome: 'diagnostic_authenticated', authorized: false, evidenceDigest: verified.evidenceDigest, recordedOutcome: verified.recordedOutcome, recordedReasonCodes: verified.recordedReasonCodes, recoveryInstruction: verified.recoveryInstruction, featureAssessment, target: targetName })}\n`);
         return 0;
       }
       const verified = await verifyRelease(z.string().min(1).parse(values['release-dir']));

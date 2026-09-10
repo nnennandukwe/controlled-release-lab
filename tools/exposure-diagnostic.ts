@@ -18,7 +18,8 @@ export function inspectExposureDiagnostic(input: unknown) {
   checkExposureRequest({ ...record.request, issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1000).toISOString() });
   const proof = inspectFeatureProof(record.featureProof, exposureSubject(record.request), 'any', false);
   if (proof.after.stage !== record.request.stage || !matchesDesired(proof.after.state, record.request.desired)) throw new LabError('DIAGNOSTIC_REJECTED', 'Diagnostic flag state differs from the recorded desired state.');
-  return { envelope, assessment: proof.measurement };
+  return { envelope, recordedOutcome: record.outcome, recordedReasonCodes: record.reasonCodes,
+    recoveryInstruction: record.recoveryInstruction, featureAssessment: proof.measurement };
 }
 
 export function createExposureDiagnostic(record: ExposureRecord, operator: z.infer<typeof producerSchema>) {

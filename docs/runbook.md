@@ -538,8 +538,13 @@ npm run lab -- verify-diagnostic --target live --release-dir artifacts/failed-ex
 ```
 
 This needs GitHub/Sigstore access and `GH_TOKEN`, but no Railway or LD credentials.
-The result is `diagnostic_authenticated` with `authorized: false`; it recomputes
-the assessment from raw samples. A missing bundle or failed signing/upload is not
+The result is `diagnostic_authenticated` with `authorized: false`. Its
+`recordedOutcome`, `recordedReasonCodes` and `recoveryInstruction` preserve the
+authenticated operation decision. `featureAssessment` separately recomputes the
+standalone feature window from raw samples. That assessment can be healthy while
+the operation is blocked by a cross-stage treatment-retention check; the verifier
+does not have the predecessor attachment to recompute that check. Neither result
+authorizes expansion. A missing bundle or failed signing/upload is not
 a verified diagnostic. `work/last-result.json` is only a derived pointer for the
 current workflow run and operation; a new invocation removes a stale pointer.
 

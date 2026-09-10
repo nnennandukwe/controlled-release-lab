@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
       exposure_run:
-        description: Exact successful immediate predecessor exposure run (5, 25, or 100 percent)
+        description: 'Exact successful predecessor run: internal for 5%, 5% for 25%, 25% for 100%'
         type: string
       exposure_attempt:
         type: string

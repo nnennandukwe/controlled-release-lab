@@ -84,3 +84,20 @@ do not represent a Qodo dismissal or a clean tool verdict.
 Retain the tool's open statuses and the code/behavior evidence for these assessed
 disagreements. Do not add new infrastructure, silently recycle unresolved work,
 or remove the disclosed fixture to obtain a nominally clean review.
+
+## Fifth review and diagnostic output
+
+The fifth full deep review at `69a6bdbcdc783b5cabed5f915905172c34d02653`
+reported complete file coverage, unresolved specification refs, and two new
+remediation-recommended findings. The earlier tool statuses remained open.
+
+- `ea44fee0-0165-464a-ac47-d963b28a2438`: clarified the workflow predecessor
+  selector to say internal for 5%, 5% for 25%, and 25% for 100%. Guards were already
+  enforcing that mapping; the input description was ambiguous.
+- `41fc4ebb-b762-48e0-956f-4079b0993f76`: the diagnostic CLI omitted the signed
+  record's reason codes and recovery instruction. Tests first reproduced those
+  missing fields for both unhealthy measurement and healthy measurement plus
+  blocked exposure. The verifier now returns the authenticated recorded decision
+  separately from the recomputed `featureAssessment`. The latter does not claim
+  to recompute cross-stage retention without predecessor attachments, and neither
+  can authorize expansion. Raw samples remain in the retained artifact.
