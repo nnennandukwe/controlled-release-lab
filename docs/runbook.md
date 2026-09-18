@@ -569,7 +569,7 @@ manual search. Stop before the next window would exceed the remaining budget.
    publication. This refreshes evidence without rebuilding E.
 2. Publish F once after PR 1 merges. Complete staging response-loss deployment
    recovery and its queued normal-query internal flag rehearsal. The declared
-    fixture adds an asynchronous 1,000 ms delay only when ranked search evaluates
+   fixture adds an asynchronous 1,000 ms delay only when ranked search evaluates
    true for normalized `workspace`. It changes no result membership or ranking,
    and has no runtime switch. These checks make no ranked challenge-latency claim.
 3. Promote F's exact digest with live off, retaining its live off baseline. Run
@@ -604,6 +604,33 @@ Each operation above uses **Operate lab** inputs in the table. Evidence selector
 always identify exact producer run/attempts; never rerun an old mutation job.
 The automated image-to-staging and staging-to-internal queues still require their
 protected owner approvals; inspect existing queued requests before dispatching.
+
+### Build 4 source repair
+
+F's [5% diagnostic run](https://github.com/nnennandukwe/controlled-release-lab/actions/runs/35377878158)
+recorded ranked `workspace` p95 of 1,036.932 ms against 500 ms, with all 1,160
+requests complete and zero errors. Both subgroup and aggregate latency gates held.
+[25% resolution](https://github.com/nnennandukwe/controlled-release-lab/actions/runs/35378411122)
+refused the missing healthy predecessor artifact before the mutation job ran.
+The [independent disable](https://github.com/nnennandukwe/controlled-release-lab/actions/runs/35378431955)
+verified original behavior on the unchanged F deployment. Separate
+[native rollback](https://github.com/nnennandukwe/controlled-release-lab/actions/runs/35379007491)
+and [read-only reconciliation](https://github.com/nnennandukwe/controlled-release-lab/actions/runs/35379332875)
+verified E's image and compatible configuration, the unchanged off flag, and
+released owned lock. These are executed prerequisites for G, not evidence of G's
+eventual rollout.
+
+G removes the delay call and fixture module from source. The retained real-SDK
+HTTP test sends normalized `workspace` to treatment, checks unchanged ranked
+results, and requires completion below 500 ms. It failed on F at 1,003.443 ms
+before the source edit. Run `npm test -- test/server.test.ts test/search-admission.test.ts`,
+then `npm run verify`. Admission, disconnect and SDK-capacity protections remain;
+the per-client pending-work test now uses a controlled evaluator instead of the
+removed teaching timer. No flag setting can substitute for this source repair.
+
+Publish G only after its separate PR, verification, and current-head review.
+Use the unchanged hosted sequence above: staging treatment challenge, exact-image
+promotion, all four live stages, and an additional signed 100% observation.
 
 ### Operator monitoring and retained recovery
 

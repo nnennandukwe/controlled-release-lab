@@ -45,9 +45,10 @@ it('reclaims idle client storage before its cap can deny new arrivals and never 
   } finally { clock.mockRestore(); }
 });
 
-it('one client cannot consume every search permit with delayed workspace requests', async () => {
-  let evaluations = 0;
-  const flags: FlagEvaluator = { ...offlineFlags, evaluate: async context => { evaluations++;return { ...await offlineFlags.evaluate(context), value: true }; } };
+it('one client cannot consume every search permit with pending evaluations', async () => {
+  let evaluations = 0, resume!: () => void;
+  const pending = new Promise<void>(resolve => { resume = resolve; });
+  const flags: FlagEvaluator = { ...offlineFlags, evaluate: async context => { evaluations++;if (context.cohort === 'internal') await pending;return offlineFlags.evaluate(context); } };
   const server = await hostedApp(flags);
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();if (!address || typeof address === 'string') throw new Error('No listener');
@@ -59,7 +60,7 @@ it('one client cannot consume every search permit with delayed workspace request
     const response = await fetch(`${base}/api/search?q=keyboard`, { headers: { 'X-Real-IP': '192.0.2.2' } });
     expect(response.status).toBe(200);expect((await response.json()).results).toHaveLength(2);
     expect((await fetch(`${base}/api/search?q=keyboard`)).status).toBe(503);
-  } finally { abort.abort();await Promise.allSettled(requests);server.closeAllConnections();await new Promise<void>(resolve => server.close(() => resolve())); }
+  } finally { resume();abort.abort();await Promise.allSettled(requests);server.closeAllConnections();await new Promise<void>(resolve => server.close(() => resolve())); }
 });
 
 it('one client cannot accumulate every abandoned SDK call by disconnecting and changing personas', async () => {
@@ -115,26 +116,6 @@ it('admits at most 16 pending searches while keeping readiness responsive and re
     expect((await fetch(`${base}/api/search?q=keyboard`, { headers: { 'X-Real-IP': '192.0.2.250' } })).status).toBe(200);
   } finally {
     resume();await Promise.allSettled(requests);server.closeAllConnections();await new Promise<void>(resolve => server.close(() => resolve()));
-  }
-});
-
-it('releases teaching-delay capacity promptly when clients disconnect', async () => {
-  let ready!: () => void, evaluations = 0;
-  const admitted = new Promise<void>(resolve => { ready = resolve; });
-  const flags: FlagEvaluator = { ...offlineFlags, evaluate: async context => {
-    if (++evaluations === 16) ready();
-    return { ...await offlineFlags.evaluate(context), value: true, variationIndex: 1, fallbackUsed: false, sdkInitialized: true };
-  } };
-  const server = await hostedApp(flags);
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();if (!address || typeof address === 'string') throw new Error('No listener');
-  const base = `http://127.0.0.1:${address.port}`, abort = new AbortController();
-  const requests = Array.from({ length: 16 }, (_, index) => fetch(`${base}/api/search?q=workspace&context=internal-001`, { signal: abort.signal, headers: { 'X-Real-IP': `192.0.2.${index + 1}` } }).catch(() => null));
-  try {
-    await admitted;abort.abort();await Promise.all(requests);await delay(50);
-    expect((await fetch(`${base}/api/search?q=keyboard`, { headers: { 'X-Real-IP': '192.0.2.250' } })).status).toBe(200);
-  } finally {
-    abort.abort();await Promise.allSettled(requests);server.closeAllConnections();await new Promise<void>(resolve => server.close(() => resolve()));
   }
 });
 

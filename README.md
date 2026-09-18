@@ -21,11 +21,13 @@ on the same E deployment. That closeout records both environments off and
 discloses the remaining Qodo sampling-policy label.
 
 [Build 4](.plan/build-04-regression-repair-release.md) adds query-specific latency
-gates, 25%/100% exposure, unhealthy diagnostics, and candidate F's disclosed
-teaching fixture: ranked `workspace` searches wait asynchronously for 1,000 ms.
-Normal queries and original search are unchanged. Its hosted failure and recovery
-must be verified before a separate source repair produces candidate G. This
-implementation is not evidence that the hosted Build 4 release has completed.
+gates, 25%/100% exposure, and unhealthy diagnostics. Candidate F deliberately
+delayed ranked `workspace` searches by 1,000 ms. Its hosted latency hold, independent
+feature disablement, and native rollback to E have been verified; the
+[repair instructions](docs/runbook.md#build-4-source-repair) link those records.
+Candidate G removes the source delay and retains an HTTP latency regression test.
+Search results and release policy are unchanged. G's hosted rollout is still
+pending; this implementation does not establish release completion.
 
 The public search handler admits at most 16 pending searches per process, with a
 20-request burst and replenishment of 20 requests/second. Each network client is
