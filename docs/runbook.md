@@ -1,5 +1,11 @@
 # Controlled release runbook
 
+For the teaching sequence, use the [tutorial](tutorial/README.md),
+[separate prerequisites](tutorial/setup.md), and [facilitator guide](workshop/README.md).
+The [Build 5 acceptance record](build-05-closeout.md) distinguishes local checks
+from pending independent hosted and timed rehearsals. This runbook remains the
+operational reference; new hosted runs need their own authorization and budget.
+
 Build 2 publishes signed image provenance and signs measured deployment evidence.
 Live promotion consumes a fresh staging observation and a request-bound GitHub
 OIDC identity inside the protected execution path. A signature establishes origin

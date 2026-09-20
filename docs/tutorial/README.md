@@ -92,10 +92,34 @@ subject, stage and recomputed measurements. It is not the verifier for a deploym
 envelope. Deployment request authentication uses `npm run lab -- verify --target
 "$TARGET" --release-dir "artifacts/build5/$RUN/request"`; inspect the signed
 provider and feature evidence retained by its successful protected producer.
-For a downloaded deployment envelope, authenticate its file bundle using the
-same `verifyArtifact` mechanism demonstrated below with `workflow: 'operate.yml'`
-and its `operator.sourceSha`, then compare its producer to `operator` and call
-`assertProducer(operator, 'operate.yml')`. A signature by itself is not health.
+For a downloaded deployment envelope, authenticate its file bundle and exact
+producer with this read-only check (after setting `RUN` to that completed run):
+
+```bash
+node --import tsx --input-type=module - "$RUN" <<'JS'
+import { readFile } from 'node:fs/promises';
+import { verifyArtifact } from './tools/attestation.ts';
+import { assertProducer, controlledDeploymentEvidenceSchema } from './tools/promotion.ts';
+const run = process.argv[2];
+const dir = `artifacts/build5/${run}/proof`;
+const file = `${dir}/deployment-evidence.json`;
+const proof = controlledDeploymentEvidenceSchema.parse(JSON.parse(await readFile(file, 'utf8')));
+const producer = proof.context.operator;
+const signed = await verifyArtifact({ subject: file, bundle: `${dir}/evidence.bundle.jsonl`,
+  workflow: 'operate.yml', sourceSha: producer.sourceSha });
+if (producer.runId !== run || producer.runAttempt !== '1' ||
+    signed.runId !== run || signed.runAttempt !== '1') throw Error('Producer mismatch');
+await assertProducer(producer, 'operate.yml');
+console.log(JSON.stringify({ outcome: 'deployment_signature_verified', authorized: false,
+  record: proof.record, featureProof: proof.featureProof }));
+JS
+```
+
+Expected: exit 0 and the exact authenticated producer/record. Compare the record's
+image, deployment and configuration, feature snapshots, complete raw measurements
+and timestamps with the intended subject and policy. This signature check does not
+recompute health or grant permission; the protected consumer must still perform
+its normal semantic/freshness checks before the next action. No proof edits are allowed.
 
 ## 1. Establish the baseline and policy
 

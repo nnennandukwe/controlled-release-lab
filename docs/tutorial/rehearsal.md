@@ -60,6 +60,21 @@ of uncertain operation uses its applicable full reservation. Finalize actual
 counts from retained raw observations; do not assume success consumes the cap.
 If effects or counts are uncertain, keep the reservation outstanding.
 
+For the unchanged G starting subject, the planned primary sequence reserves:
+
+| Phase | Reservation calculation | Maximum |
+|---|---|---:|
+| Prepare E/off | G live disable 1,200; E staging recovery 1,320 + internal child 120; E live promotion 2,640; E staging disable 1,200 | 6,480 |
+| F and independent recoveries | F staging recovery 1,320 + child 120; F live promotion 2,640; live internal 120 + 5% 1,200; refused 25% 0; live disable 1,200; rollback reconciliation 1,320; staging disable 1,200 | 9,120 |
+| G completion and monitor | G staging recovery 1,320 + child 120 + 5% 1,200; live promotion 2,640; live internal 120 + 5/25/100 at 1,200 each; staging disable 1,200; live monitor 1,200 | 11,400 |
+| Primary total | No retries, optional windows or manual searches included | **27,000** |
+
+This leaves 5,000 within the primary allocation for explicitly reserved baseline
+refreshes, any required initial staging disable, and counted manual requests,
+plus the protected recovery reserve below. If starting state requires different
+operations, revise the table before requesting execution approval. These are
+upper reservations, not a prediction of observed traffic or approval to run.
+
 For this run, protect **8,000 requests for recovery/cleanup**. Do not consume that
 reserve on optional teaching retries or manual exploration. The primary sequence
 (including baseline preparation) must fit within 32,000; the operator must total
