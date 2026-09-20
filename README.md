@@ -43,6 +43,15 @@ their socket address. Missing or invalid hosted client identity produces 503
 `CLIENT_ADDRESS_UNAVAILABLE`. Client state is bounded and transient; see the
 [proxy contract and limits](docs/runbook.md#measurement-and-recovery).
 
+## Tutorial and workshop
+
+Follow the [controlled release tutorial](docs/tutorial/README.md), starting with its
+[separate setup guide](docs/tutorial/setup.md). The [90-minute facilitated workshop](docs/workshop/README.md)
+adds participant checkpoints and an answer key. These instructions replay the
+reviewed E/F/G images; [Build 5 acceptance](docs/build-05-closeout.md) records local
+verification separately from the pending independent hosted and timed rehearsals.
+New hosted work requires its own concrete authorization and traffic budget.
+
 ## Run locally
 
 Install Node 24.20.0 (the version in `.nvmrc`). Docker is needed only for container

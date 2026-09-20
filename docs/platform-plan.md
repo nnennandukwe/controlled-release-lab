@@ -25,7 +25,9 @@ The Build 1 implementation plan is saved in
 [Build 3 exposure plan](../.plan/build-03-controlled-feature-exposure.md) now have
 separate files there. The approved [Build 4 plan](../.plan/build-04-regression-repair-release.md)
 separates fixture/control implementation from repair with hosted failure and
-recovery between them; Build 5 still needs its own plan. See [the runbook](runbook.md) for the implemented
+recovery between them. The [Build 5 plan](../.plan/build-05-tutorial-workshop.md)
+now defines the tutorial and 90-minute workshop; its [acceptance record](build-05-closeout.md)
+separates documentation verification from independent hosted rehearsal. See [the runbook](runbook.md) for the implemented
 operator contracts and the [Build 4 closeout](build-04-closeout.md) for the
 executed regression, independent recoveries, G rollout to 100%, and monitoring.
 
