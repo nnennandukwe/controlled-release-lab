@@ -26,7 +26,8 @@ The Build 1 implementation plan is saved in
 separate files there. The approved [Build 4 plan](../.plan/build-04-regression-repair-release.md)
 separates fixture/control implementation from repair with hosted failure and
 recovery between them; Build 5 still needs its own plan. See [the runbook](runbook.md) for the implemented
-operator contracts and remaining hosted acceptance.
+operator contracts and the [Build 4 closeout](build-04-closeout.md) for the
+executed regression, independent recoveries, G rollout to 100%, and monitoring.
 
 ## Direction
 

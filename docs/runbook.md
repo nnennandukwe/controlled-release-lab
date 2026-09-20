@@ -274,7 +274,8 @@ not authorize a provider change or permit rerunning an earlier mutation.
 
 Railway rollback restores retained application image/configuration, not external
 flags, writes, or migrations. LaunchDarkly feature disablement is a separate
-operation described below. Full repaired feature release and completion remain later milestones.
+operation described below. The [Build 4 closeout](build-04-closeout.md) records
+separate feature disablement, native application recovery, and G's completed rollout.
 
 ## Controlled feature exposure
 
@@ -430,14 +431,15 @@ The public application separately admits at most 16 pending searches per process
 with a 20-request burst replenished at 20/second. Each network client is also
 limited to four pending requests and a 12-request burst replenished at 12/second.
 Excess traffic receives HTTP 429
-and `Retry-After: 1`; it is never queued. Client disconnect cancels the teaching
-timer, and permits release on success, failure or cancellation. The server caps
+and `Retry-After: 1`; it is never queued. Admission permits release on success,
+failure or client disconnect. F also cancelled its teaching timer on disconnect;
+G removes that timer. The server caps
 connections at 64, requests per socket at 100, headers/requests/socket inactivity
 at five seconds, and keep-alive at one second. These fixed source settings require
 no runtime switches and remain above the declared operator workload. A 429 during
 acceptance is a failed sample, never permission to retry until green.
 
-Flag evaluation has a one-second deadline independent of the teaching delay.
+Flag evaluation retains its one-second deadline after G removes the teaching delay.
 Disconnect or deadline ends the HTTP wait and restores admission. At most 16
 underlying SDK evaluations may remain outstanding, with at most four per client;
 if they stall, new admitted
@@ -622,8 +624,8 @@ verified original behavior on the unchanged F deployment. Separate
 [native rollback](https://github.com/nnennandukwe/controlled-release-lab/actions/runs/35379007491)
 and [read-only reconciliation](https://github.com/nnennandukwe/controlled-release-lab/actions/runs/35379332875)
 verified E's image and compatible configuration, the unchanged off flag, and
-released owned lock. These are executed prerequisites for G, not evidence of G's
-eventual rollout.
+released owned lock. These were the executed prerequisites for G; its subsequent
+rollout and monitoring evidence are in the [Build 4 closeout](build-04-closeout.md).
 
 G removes the delay call and fixture module from source. The retained real-SDK
 HTTP test sends normalized `workspace` to treatment, checks unchanged ranked
@@ -653,7 +655,21 @@ mutation permission. It proves the recorded window, not continuing service healt
 Run it promptly: current proof freshness is 30 minutes.
 
 Nnenna runs one signed live `observe-exposure` window daily and after any deployment,
-flag or configuration change. Build 4 includes the first additional 100% window.
+flag or configuration change. Build 4's [closeout](build-04-closeout.md) records the
+first additional 100% window and the interruption between release and monitoring.
+For the recorded, unchanged G subject, prepare a window with:
+
+```bash
+gh workflow run operate.yml --ref main \
+  -f operation=observe-exposure -f target=live \
+  -f evidence_run=35382661097 -f evidence_attempt=1 \
+  -f change_reference='<dated-monitoring-reference>'
+```
+
+Inspect the fresh resolved request and approve the protected live action. Download
+`lab-proof-live-<run>-1` and authenticate it promptly with `verify-exposure` as above.
+This example is valid only while G's image, deployment, configuration and off
+baseline still match; it does not schedule future runs or grant mutation authority.
 Use G's off deployment baseline for the unchanged subject; a changed deployment
 or configuration needs a fresh compatible baseline. Read the recomputed aggregate
 and query/variation metrics, zero-error/identity gates, complete roster and full
