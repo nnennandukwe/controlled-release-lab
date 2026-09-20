@@ -30,9 +30,9 @@ function operationWasSkipped(value: unknown) {
   const job = matches[0]!;
   if (job.name !== 'operate' || job.status !== 'completed') return false;
   if (job.conclusion === 'skipped') return true;
-  // GitHub reports an approval-wait cancellation with no allocated runner or steps.
+  // GitHub reports cancelled/rejected approvals without an allocated runner or steps.
   // Missing runner fields or any evidence of execution must retain the block.
-  if (job.conclusion === 'cancelled' && job.runner_id === 0 && job.runner_name === '' && job.steps.length === 0) return true;
+  if ((job.conclusion === 'cancelled' || job.conclusion === 'failure') && job.runner_id === 0 && job.runner_name === '' && job.steps.length === 0) return true;
   const operations = job.steps.filter(step => step.name === 'Execute the requested bounded operation');
   return operations.length === 1 && operations[0]!.status === 'completed' && operations[0]!.conclusion === 'skipped';
 }
