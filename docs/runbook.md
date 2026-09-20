@@ -266,6 +266,11 @@ There is no force-unlock command. Missing/expired state or ambiguous execution h
 requires recovery of the evidence, not deletion of locks. History lookup is bounded
 to 10 pages of workflow runs and 20 operation attempts; incomplete job/artifact
 lookups fail closed. State is retained 90 days and carried into later operations.
+Expired approvals should be rejected and replaced with a fresh dispatch. GitHub
+may label the unstarted protected job `failure`; restoration skips it only when
+the complete job listing explicitly shows no allocated runner and zero steps.
+Missing or contradictory execution metadata still blocks restoration. This does
+not authorize a provider change or permit rerunning an earlier mutation.
 
 Railway rollback restores retained application image/configuration, not external
 flags, writes, or migrations. LaunchDarkly feature disablement is a separate

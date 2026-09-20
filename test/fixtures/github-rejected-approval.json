@@ -1,0 +1,225 @@
+{
+  "source": "https://github.com/nnennandukwe/controlled-release-lab/actions/runs/35513302938",
+  "note": "Projection of captured jobs API fields; unrelated provider metadata omitted. Rejected environment approval, no runner allocated.",
+  "total_count": 5,
+  "jobs": [
+    {
+      "name": "resolve",
+      "status": "completed",
+      "conclusion": "success",
+      "runner_id": 1000003075,
+      "runner_name": "GitHub Actions 1000003075",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-20T13:22:59Z",
+          "completed_at": "2026-09-20T13:23:00Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-20T13:23:00Z",
+          "completed_at": "2026-09-20T13:23:01Z"
+        },
+        {
+          "name": "Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-20T13:23:01Z",
+          "completed_at": "2026-09-20T13:23:03Z"
+        },
+        {
+          "name": "Run npm ci --ignore-scripts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-20T13:23:03Z",
+          "completed_at": "2026-09-20T13:23:05Z"
+        },
+        {
+          "name": "Run npm run setup:verifier",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-20T13:23:05Z",
+          "completed_at": "2026-09-20T13:23:06Z"
+        },
+        {
+          "name": "Run node --import tsx tools/release-workflow.ts resolve",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-20T13:23:06Z",
+          "completed_at": "2026-09-20T13:23:18Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-20T13:23:18Z",
+          "completed_at": "2026-09-20T13:23:19Z"
+        },
+        {
+          "name": "Post Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-09-20T13:23:19Z",
+          "completed_at": "2026-09-20T13:23:19Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 14,
+          "started_at": "2026-09-20T13:23:19Z",
+          "completed_at": "2026-09-20T13:23:19Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-09-20T13:23:19Z",
+          "completed_at": "2026-09-20T13:23:19Z"
+        }
+      ]
+    },
+    {
+      "name": "finalize",
+      "status": "completed",
+      "conclusion": "success",
+      "runner_id": 1000003076,
+      "runner_name": "GitHub Actions 1000003076",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-20T13:23:24Z",
+          "completed_at": "2026-09-20T13:23:25Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-20T13:23:25Z",
+          "completed_at": "2026-09-20T13:23:26Z"
+        },
+        {
+          "name": "Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-20T13:23:26Z",
+          "completed_at": "2026-09-20T13:23:27Z"
+        },
+        {
+          "name": "Run npm ci --ignore-scripts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-20T13:23:27Z",
+          "completed_at": "2026-09-20T13:23:30Z"
+        },
+        {
+          "name": "Run npm run setup:verifier",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-20T13:23:30Z",
+          "completed_at": "2026-09-20T13:23:31Z"
+        },
+        {
+          "name": "Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-20T13:23:31Z",
+          "completed_at": "2026-09-20T13:23:32Z"
+        },
+        {
+          "name": "Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 7,
+          "started_at": "2026-09-20T13:23:32Z",
+          "completed_at": "2026-09-20T13:23:32Z"
+        },
+        {
+          "name": "Run node --import tsx tools/release-workflow.ts finalize",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-20T13:23:32Z",
+          "completed_at": "2026-09-20T13:23:39Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-20T13:23:39Z",
+          "completed_at": "2026-09-20T13:23:40Z"
+        },
+        {
+          "name": "Post Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-20T13:23:40Z",
+          "completed_at": "2026-09-20T13:23:40Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-20T13:23:40Z",
+          "completed_at": "2026-09-20T13:23:40Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-20T13:23:40Z",
+          "completed_at": "2026-09-20T13:23:40Z"
+        }
+      ]
+    },
+    {
+      "name": "staging-proof",
+      "status": "completed",
+      "conclusion": "skipped",
+      "runner_id": null,
+      "runner_name": null,
+      "steps": []
+    },
+    {
+      "name": "operate",
+      "status": "completed",
+      "conclusion": "failure",
+      "runner_id": 0,
+      "runner_name": "",
+      "steps": []
+    },
+    {
+      "name": "queue-flag-recovery",
+      "status": "completed",
+      "conclusion": "skipped",
+      "runner_id": null,
+      "runner_name": null,
+      "steps": []
+    }
+  ]
+}
