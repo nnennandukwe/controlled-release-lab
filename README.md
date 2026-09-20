@@ -20,21 +20,21 @@ including its final CI-only credential handoff. Build 3
 on the same E deployment. That closeout records both environments off and
 discloses the remaining Qodo sampling-policy label.
 
-[Build 4](.plan/build-04-regression-repair-release.md) adds query-specific latency
-gates, 25%/100% exposure, and unhealthy diagnostics. Candidate F deliberately
-delayed ranked `workspace` searches by 1,000 ms. Its hosted latency hold, independent
-feature disablement, and native rollback to E have been verified; the
-[repair instructions](docs/runbook.md#build-4-source-repair) link those records.
-Candidate G removes the source delay and retains an HTTP latency regression test.
-Search results and release policy are unchanged. G's hosted rollout is still
-pending; this implementation does not establish release completion.
+[Build 4 completed the hosted regression, recovery, repair, and 100% rollout](docs/build-04-closeout.md).
+Candidate F's disclosed 1,000 ms ranked `workspace` delay blocked expansion.
+Independent feature disablement recovered F, then native rollback recovered E.
+The separately reviewed G repair removed the source delay and passed every live
+stage and an additional signed monitoring window. Live remains on G at 100% of
+eligible synthetic users; excluded personas remain original and staging is off.
+The retained flag and [operator monitoring procedure](docs/runbook.md#operator-monitoring-and-retained-recovery)
+remain in use. The closeout records interrupted approvals, failed observations,
+review limitations, and the gap between release and the next monitoring window.
 
 The public search handler admits at most 16 pending searches per process, with a
 20-request burst and replenishment of 20 requests/second. Each network client is
 also limited to four pending searches and 12/second with burst 12. Excess requests receive
-429 and `Retry-After: 1`; no queue is retained. Disconnected clients cancel the
-teaching delay. These fixed application bounds leave the operator's two-concurrent,
-ten-per-second workload unchanged.
+429 and `Retry-After: 1`; no queue is retained. These fixed application bounds
+leave the operator's two-concurrent, ten-per-second workload unchanged.
 Flag evaluation has a separate one-second deadline and a cap of 16 outstanding
 SDK calls, at most four per client. A stalled evaluator produces controlled 503 responses without retaining
 HTTP admission or starting unlimited abandoned evaluations.
