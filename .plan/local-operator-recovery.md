@@ -124,3 +124,28 @@ the exposure CLI's accepted arguments stay unchanged.
 | Completed-owner cleanup read | Provider rejects snapshot | New blocked record, original lock retained, retry names original UUID | Real CLI against loopback Railway fixture |
 | Recovery command | Custom config and work-directory paths contain spaces and apostrophes | Pasted command reloads the same target map | Execute emitted command in a POSIX shell |
 | Subsequent readback | Provider resumes | Completed unsuccessful owner clears its lock after blocked cleanup evidence | Original bytes preserved and zero mutations |
+
+## Authorized hosted staging verification
+
+On November 13 the user authorized hosted recovery testing against existing
+staging resources, followed by Qodo resolution and merge after checks pass. Paid
+resources and permission expansion remain excluded. The first protected doctor
+run (`43520737547`) failed before effects; Railway's dashboard marked the staging
+CI token invalid. Its replacement retains the same project/environment scope and
+updates only the existing staging GitHub secret. A direct PR-head doctor then
+verified the retained G image, deployment and configuration against Railway.
+
+The additional check exercises the repaired completed-owner path with real
+Railway requests. It deliberately submits one invalid read-only GraphQL field
+to induce an actual provider rejection, retains the original owner and evidence,
+then executes the CLI's emitted command against normal provider readback. The
+terminal blocked record and retained lock are labeled teaching fixtures in an
+isolated journal. Successful cleanup remains blocked and supplies no eligibility.
+
+The existing protected staging doctor workflow gains an explicit opt-in input.
+Main-only execution, required environment approval and job permissions stay the
+same. Provider mutations and non-Railway destinations are rejected by the test
+transport. The receipt binds source, provider subject, times, request counts,
+original bytes, lock cleanup and before/after provider state. CI preserves failed
+checks and successful receipts in the existing state artifact. Local invocation
+requires explicit staging opt-in and the same scoped credential.

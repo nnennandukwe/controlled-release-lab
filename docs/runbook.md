@@ -211,6 +211,19 @@ produce a null p95 instead of claiming a complete latency measurement.
 
 ### Retained locks after a completed result
 
+To check this recovery path against the existing Railway staging environment,
+dispatch **Operate lab** on main with `operation=doctor`, `target=staging`, and
+`rehearse_operator_recovery=true`. Inspect and approve the normal staging job.
+The opt-in check sends one deliberately invalid read-only GraphQL request to
+Railway, preserves an isolated teaching-fixture record and its owned lock, then
+executes the emitted CLI recovery command against real provider readback. It
+requires unchanged original bytes, blocked cleanup evidence, a released owned
+lock and unchanged provider state. The job retains its receipt and failed
+attempts under `work/hosted-operator-recovery/` in the ordinary `lab-state`
+artifact. It supplies no release eligibility. Other operations and live targets
+reject this input before resolution. Ordinary doctor calls keep their preflight
+behavior.
+
 If lock removal fails after a result's saved, JSON output keeps `recordPath`,
 `attemptId`, and the measured `outcome`, plus a `cleanupWarning` with code
 `LOCK_CLEANUP_REQUIRED` and the filesystem `causeCode` (for example `EACCES`).

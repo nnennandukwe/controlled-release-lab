@@ -16,6 +16,10 @@ on:
         description: Staging internal exposure only; discard one flag response and verify read-only recovery
         type: boolean
         default: false
+      rehearse_operator_recovery:
+        description: Staging doctor only; verify owned-lock recovery through real read-only provider requests
+        type: boolean
+        default: false
       exposure_run:
         description: 'Exact successful predecessor run: internal for 5%, 5% for 25%, 25% for 100%'
         type: string
@@ -75,6 +79,7 @@ env:
   LAB_OPERATION: ${{ inputs.operation }}
   LAB_STAGE: ${{ inputs.stage }}
   LAB_REHEARSE_RESPONSE_LOSS: ${{ inputs.rehearse_response_loss }}
+  LAB_REHEARSE_OPERATOR_RECOVERY: ${{ inputs.rehearse_operator_recovery }}
   LAB_EXPOSURE_RUN: ${{ inputs.exposure_run }}
   LAB_EXPOSURE_ATTEMPT: ${{ inputs.exposure_attempt }}
   LAB_TARGET: ${{ inputs.target }}
@@ -257,6 +262,15 @@ jobs:
           LD_MANAGEMENT_TOKEN: ${{ (inputs.operation == 'expose' || inputs.operation == 'disable') && inputs.apply && secrets.LD_MANAGEMENT_TOKEN || '' }}
           LAB_CONFIG_JSON: ${{ vars.LAB_CONFIG_JSON }}
           LAB_RELEASE_DIR: ${{ needs.resolve.outputs.has_request == 'true' && 'work/release/current' || '' }}
+      - id: hosted-recovery
+        # The opt-in check shares this job's existing protection and credential scope.
+        # It writes only an isolated teaching-fixture journal under work/.
+        name: Verify hosted staging operator recovery
+        if: inputs.operation == 'doctor' && inputs.target == 'staging' && inputs.rehearse_operator_recovery
+        run: node --import tsx tools/hosted-operator-recovery.ts
+        env:
+          LAB_HOSTED_RECOVERY_CHECK: 'true'
+          RAILWAY_PROJECT_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}
       - id: state
         name: Preserve evidence and unresolved operation locks
         if: always() && steps.operation.outcome != 'skipped'
