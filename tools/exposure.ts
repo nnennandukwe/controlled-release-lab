@@ -163,9 +163,10 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
   if (request.targetName !== input.targetName || (!prior && request.operation !== input.operation) || (input.operation === 'expose' && request.stage !== input.stage)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'Command and resolved exposure request disagree.');
   if (!prior && (request.purpose === 'response-loss-rehearsal') !== (input.rehearseResponseLoss === true)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'The approved request and command must agree on the response-loss rehearsal.');
   if (prior && (verified.requestDigest !== prior.record.requestDigest || fingerprint(request) !== fingerprint(prior.record.request))) throw new LabError('EXPOSURE_RECORD_CHANGED', 'The prior intent and retained request disagree.');
-  await hosting.assertScope(); await flags.assertScope();
+  await hosting.assertScope(request.target); await flags.assertScope();
   const subject = exposureSubject(request);
-  const beforeProvider = await hosting.snapshot(); assertServing(beforeProvider, subject);
+  const beforeProvider = await hosting.snapshot();
+  if (!terminalCleanup) assertServing(beforeProvider, subject);
   const before = await flags.snapshot();
   if (!prior && before.digest !== request.before.digest) throw new LabError('FLAG_STATE_CHANGED', 'The flag changed since request resolution. No PATCH was sent.');
   if (mutating && !input.apply) return { outcome: 'preview', attemptId: undefined, recoveryInstruction: undefined, cleanupWarning: undefined, reasonCodes: ['APPLY_REQUIRED'], target: request.targetName, stage: request.stage, requestDigest: verified.requestDigest, recordPath: '' };

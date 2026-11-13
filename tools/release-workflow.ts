@@ -102,8 +102,8 @@ export async function finalizeRelease() {
 
 export async function sealObservation() {
   if (['expose', 'disable', 'observe-exposure', 'reconcile-exposure'].includes(process.env.LAB_OPERATION ?? '')) return (await import('./exposure-workflow.js')).sealExposure();
-  const result = z.object({ outcome: z.string(), recordPath: z.string().optional() }).parse(JSON.parse(await readFile('work/last-result.json', 'utf8')));
-  if (result.outcome !== 'verified' || !result.recordPath) { await output('sign', 'false'); return; }
+  const result = z.object({ outcome: z.string(), recordPath: z.string().optional(), cleanupWarning: z.unknown().optional() }).parse(JSON.parse(await readFile('work/last-result.json', 'utf8')));
+  if (result.cleanupWarning !== undefined || result.outcome !== 'verified' || !result.recordPath) { await output('sign', 'false'); return; }
   const record = await loadRecord(result.recordPath);
   const sourceDirectory = process.env.LAB_OPERATION === 'reconcile'
     ? join('work/attempts', z.string().uuid().parse(process.env.LAB_ATTEMPT), 'release') : releaseDir;

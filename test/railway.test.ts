@@ -89,3 +89,15 @@ it('binds SDK key identity and environment mapping without exposing the credenti
  vars.LD_SDK_KEY='sdk-fixture-wrong-environment';expect((await client.snapshot()).configurationFingerprint).not.toBe(first.configurationFingerprint);
  vars.LD_SDK_KEY='sdk-fixture-first';vars.LD_ENVIRONMENT_KEY='production';expect((await client.snapshot()).configurationFingerprint).not.toBe(first.configurationFingerprint);
 });
+
+it.each(['projectId', 'serviceId', 'environmentId', 'url'] as const)('rejects an adapter whose %s differs from the retained recovery target', async field => {
+  const transport = vi.fn<typeof fetch>(async () => Response.json({ data: { projectToken: target } }));
+  const expected = { ...target, [field]: field === 'url' ? 'https://another.example' : '77777777-7777-4777-8777-777777777777' };
+  await expect(new Railway('synthetic-token', target, transport).assertScope(expected)).rejects.toMatchObject({ code: 'PROVIDER_TARGET_MISMATCH' });
+  expect(transport).not.toHaveBeenCalled();
+});
+it('accepts an exact retained target and verifies its token scope', async () => {
+  const transport = vi.fn<typeof fetch>(async () => Response.json({ data: { projectToken: target } }));
+  await expect(new Railway('synthetic-token', target, transport).assertScope(target)).resolves.toBeUndefined();
+  expect(transport).toHaveBeenCalledOnce();
+});

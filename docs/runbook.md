@@ -216,6 +216,8 @@ If lock removal fails after a result's saved, JSON output keeps `recordPath`,
 `LOCK_CLEANUP_REQUIRED` and the filesystem `causeCode` (for example `EACCES`).
 The CLI exits 2. Follow that warning's command with the
 same work directory; don't repeat the mutation or delete the lock manually.
+Both sealing entry points emit `sign=false` while a cleanup warning remains;
+the saved measurements stay in the state artifact until recovery completes.
 
 `reconcile` and `reconcile-exposure` accept a completed attempt only while its
 UUID still owns that environment's lock. The retained record's UUID must match
@@ -227,6 +229,8 @@ runtime evidence before clearing the original lock. For a completed unsuccessful
 result, it records provider readback and `COMPLETED_ATTEMPT_CLEANUP`, clears only
 the original owned lock, and stays blocked. That cleanup supplies no release
 eligibility; inspect the earlier failure and resolve fresh authority for recovery.
+The hosting adapter must match the retained project, service, environment and URL.
+Image or configuration drift stays visible in the blocked cleanup record.
 Each path saves a new record and preserves the earlier bytes. Acknowledged native
 rollbacks remain unknown and require verified recovery; a blocked follow-up has a
 new UUID and keeps the original lock.

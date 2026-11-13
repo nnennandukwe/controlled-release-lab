@@ -76,3 +76,31 @@ The failed-measurement regression also verifies that a subsequent recovery comma
 names the original lock owner rather than the new failed observation attempt.
 Real protected-gate tests cover initial expiry and identity rejection immediately
 before and after the source update. Only the latter retains an unknown effect.
+
+## Sealing and drift follow-up from review
+
+Final review at `f563cb6` identified two additional boundary cases. A verified
+measurement with `cleanupWarning` must remain in local state until cleanup;
+sealing must emit `sign=false` and create no new proof or diagnostic artifact.
+This applies to both deployment and exposure sealing entry points.
+
+A completed unsuccessful exposure owns no pending provider effect. After its
+request and lock identities are verified, current deployment drift must remain
+observable in the new blocked cleanup record rather than prevent cleanup from
+starting. Unknown attempts still require the original serving-subject checks.
+
+| Boundary | Fault | Required result | Lifecycle check |
+|---|---|---|---|
+| Seal public CLI | Saved verified/blocked result with cleanup warning | No eligible or diagnostic artifact; sign=false | Real seal subprocess with checksummed exposure fixture and deployment gate |
+| Pre-effect flag check | Deployment drifts, then owned-lock unlink fails | Terminal blocked record retained | Real exposure execution and immutable files |
+| Cleanup after drift | Original terminal owner reconciled | Provider readback recorded, blocked cleanup saved, original lock released, no proof | Exposure recovery regression |
+
+These are local protocol changes. Native signing, provider mutation and hosted
+traffic remain outside this maintenance request.
+
+Allowing image/configuration drift for completed unsuccessful cleanup still
+requires the provider adapter to match the retained project, service,
+environment, and URL. The hosting scope check gains an optional expected target;
+its Railway implementation rejects a mismatch before transport access. Existing
+callers retain the same default behavior. Negative adapter tests cover each
+identity field, and unknown-effect drift continues to retain its lock.

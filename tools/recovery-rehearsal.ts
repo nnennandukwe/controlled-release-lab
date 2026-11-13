@@ -16,7 +16,7 @@ export async function rehearseRecovery(request: Operation, hosting: Hosting, roo
   let receivedDeployment: string | undefined;
   const calls = { updateCalls: 0, deployCalls: 0, rollbackCalls: 0 };
   const wrapped: Hosting = {
-    assertScope: () => hosting.assertScope(), snapshot: () => hosting.snapshot(), deployment: id => hosting.deployment(id),
+    assertScope: target => hosting.assertScope(target), snapshot: () => hosting.snapshot(), deployment: id => hosting.deployment(id),
     updateImage: async image => { calls.updateCalls++; await hosting.updateImage(image); },
     deploy: async () => {
       calls.deployCalls++;

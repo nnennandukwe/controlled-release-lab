@@ -328,3 +328,34 @@ it.each(['record','intent'])('rejects exposure %s copied under another attempt U
  await expect(executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:copied},scenario.hosting,scenario.flags,work,scenario.transport)).rejects.toMatchObject({code:'ATTEMPT_IDENTITY_MISMATCH'});
  expect(scenario.patches()).toBe(patches);expect(await readdir(join(work,'locks'))).toHaveLength(1);
 });
+
+it('clears a pre-effect flag rejection after hosting drift without issuing eligibility',async()=>{
+ const scenario=await fixture(),work=join(scenario.root,'work');
+ const before=await scenario.hosting.snapshot();
+ scenario.hosting.snapshot=vi.fn().mockResolvedValueOnce(before).mockResolvedValue({...before,configurationFingerprint:'f'.repeat(64)});
+ const unlink=fs.unlink;
+ const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
+  if(String(path).endsWith('.lock'))throw Object.assign(new Error('Injected lock cleanup failure'),{code:'EACCES'});
+  return unlink(path);
+ });
+ const rejected=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
+ cleanup.mockRestore();
+ expect(rejected).toMatchObject({outcome:'blocked',reasonCodes:['EXPOSURE_SUBJECT_CHANGED'],cleanupWarning:{code:'LOCK_CLEANUP_REQUIRED'}});
+ const original=await readFile(rejected.recordPath);
+ const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:rejected.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
+ expect(recovered).toMatchObject({outcome:'blocked',reasonCodes:['COMPLETED_ATTEMPT_CLEANUP']});
+ const record=await loadExposureRecord(recovered.recordPath);
+ expect(record.featureProof).toBeNull();expect(()=>createExposureEnvelope(record,scenario.request.operator)).toThrow();
+ expect(await readdir(join(work,'locks'))).toHaveLength(0);expect(scenario.patches()).toBe(0);
+ expect(await readFile(rejected.recordPath)).toEqual(original);
+});
+
+it('retains an unknown flag effect when the hosting subject drifts',async()=>{
+ const scenario=await fixture({lost:true}),work=join(scenario.root,'work');
+ const original=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
+ const bytes=await readFile(original.recordPath),before=await scenario.hosting.snapshot();
+ scenario.hosting.snapshot=vi.fn(async()=>({...before,configurationFingerprint:'f'.repeat(64)}));
+ await expect(executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport)).rejects.toMatchObject({code:'EXPOSURE_SUBJECT_CHANGED'});
+ expect(await readdir(join(work,'locks'))).toHaveLength(1);expect(await readFile(original.recordPath)).toEqual(bytes);
+ expect(scenario.patches()).toBe(1);
+});
