@@ -236,7 +236,10 @@ rollbacks remain unknown and require verified recovery; a blocked follow-up has 
 new UUID and keeps the original lock.
 
 After a failed deployment reconciliation, the recovery command names the original
-attempt. Keep using that UUID until reconciliation succeeds. Cancellation during
+attempt, including a read failure before completed-attempt cleanup. If the CLI
+was started with `--config`, the hint includes that file's absolute path and
+quotes it for the shell. Keep using that UUID and target map until reconciliation
+succeeds. Cancellation during
 observation can leave an intent without a terminal record; restart with the
 original attempt and retained work directory. Previously absent responses remain
 absent from the earlier record.

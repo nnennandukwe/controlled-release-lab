@@ -134,6 +134,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       return result.cleanupWarning ? 2 : result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
     }
     const request: Operation = { operation: (operation === 'rehearse-recovery' ? 'deploy' : operation) as Operation['operation'], purpose: operation === 'rehearse-recovery' ? 'recovery-rehearsal' : 'release', targetName, target, apply: values.apply ?? false };
+    if (values.config !== undefined) request.configPath = resolve(values.config);
     if (values['release-dir'] !== undefined) request.releaseDir = values['release-dir'];
     if (request.releaseDir && operation === 'observe') {
       const { request: candidate } = await verifyRelease(request.releaseDir);

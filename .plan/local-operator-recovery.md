@@ -104,3 +104,23 @@ environment, and URL. The hosting scope check gains an optional expected target;
 its Railway implementation rejects a mismatch before transport access. Existing
 callers retain the same default behavior. Negative adapter tests cover each
 identity field, and unknown-effect drift continues to retain its lock.
+
+## Recovery-command follow-up from hosted review
+
+The extended review at `1080891` identified two command-hint cases to reproduce
+through the CLI before editing execution behavior. A provider read can fail
+before terminal cleanup starts; its blocked follow-up must name the original
+lock owner for another read-only attempt. Only the successful
+`COMPLETED_ATTEMPT_CLEANUP` marker may omit that retry command.
+
+An invocation with `--config` must carry that file path into its recovery hint.
+The hint must quote both paths for the POSIX shell and preserve the custom target
+map, without copying configuration contents or credentials into evidence. The
+deployment CLI will carry this optional diagnostic context to command generation;
+the exposure CLI's accepted arguments stay unchanged.
+
+| Boundary | Fault | Required result | Lifecycle check |
+|---|---|---|---|
+| Completed-owner cleanup read | Provider rejects snapshot | New blocked record, original lock retained, retry names original UUID | Real CLI against loopback Railway fixture |
+| Recovery command | Custom config and work-directory paths contain spaces and apostrophes | Pasted command reloads the same target map | Execute emitted command in a POSIX shell |
+| Subsequent readback | Provider resumes | Completed unsuccessful owner clears its lock after blocked cleanup evidence | Original bytes preserved and zero mutations |

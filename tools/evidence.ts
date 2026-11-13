@@ -68,9 +68,9 @@ export async function ownsLock(root: string, target: Target, attemptId: string) 
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; return false; }
 }
 
-export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposure', target: 'staging' | 'live', attempt: string, root: string) {
-  const quotedRoot = `'${root.replaceAll("'", "'\\''")}'`;
-  return `npm run lab -- ${operation} --target ${target} --attempt ${attempt} --work-dir ${quotedRoot}`;
+export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposure', target: 'staging' | 'live', attempt: string, root: string, configPath?: string) {
+  const quote = (path: string) => `'${path.replaceAll("'", "'\\''")}'`;
+  return `npm run lab -- ${operation} --target ${target} --attempt ${attempt} --work-dir ${quote(root)}${configPath === undefined ? '' : ` --config ${quote(configPath)}`}`;
 }
 
 export function lockCleanupWarning(error: unknown, recordPath: string, command: string) {

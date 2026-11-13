@@ -261,14 +261,16 @@ it('refuses signed-observation preparation when live source differs from its exp
 // Simulate interruption after the terminal record's commit and before lock cleanup.
 it('recovers a completed deployment whose owned lock survived cleanup failure', async () => {
   const directory = await root(), hosting = host();
+  const configPath = join(directory, 'custom targets.json');
   const unlink = fs.unlink;
   const cleanup = vi.spyOn(fs, 'unlink').mockImplementation(async path => {
     if (String(path).endsWith('.lock')) throw Object.assign(new Error('Injected lock cleanup failure'), { code: 'EACCES' });
     return unlink(path);
   });
-  const completed = await execute(request, hosting, directory, traffic);
+  const completed = await execute({ ...request, configPath }, hosting, directory, traffic);
   expect(completed).toMatchObject({ outcome: 'verified', cleanupWarning: { code: 'LOCK_CLEANUP_REQUIRED', causeCode: 'EACCES' } });
   expect(completed.cleanupWarning?.recoveryInstruction).toContain(completed.attemptId!);
+  expect(completed.cleanupWarning?.recoveryInstruction).toContain(`--config '${configPath}'`);
   cleanup.mockRestore();
   const [attempt] = await readdir(join(directory, 'attempts'));
   const path = join(directory, 'attempts', attempt!, 'record.json'), bytes = await readFile(path);
