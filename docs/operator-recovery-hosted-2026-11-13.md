@@ -73,3 +73,21 @@ the subprocess requests, so provider retries are counted from execution. The
 check again observed seven provider reads, the induced HTTP 400, unchanged
 provider state and original bytes, and successful blocked owned-lock cleanup.
 The earlier receipt retains its original observations and call-site accounting.
+
+## Harness review fixes
+
+Local review of `806f921` found that successful provider retries were rejected
+and a timed-out shell could leave descendants holding output pipes. Before the
+fixes, the real adapter's 429-to-success retry failed the audit check; disposable
+process-tree tests reproduced both the timeout hang and surviving descendants
+after SIGTERM. Those regressions passed after the harness accepted bounded
+supported read retries and terminated its owned POSIX process group on timeout
+or cancellation. Unexpected errors, missing reads and mutation attempts still
+fail the audit.
+
+The [subsequent hosted receipt](evidence/operator-recovery-2026-11-13-review-fixes.json)
+binds source `82bdb9b80b04da1df82992ab725a4a16fe0e6487`, from 15:06:54 to
+15:06:55 Pacific. Its seven measured reads again produced the intended HTTP 400,
+preserved original bytes and provider state, and completed blocked owned-lock
+cleanup with zero mutation attempts. The retry and process-tree regressions are
+local checks; this hosted receipt records the actual Railway requests separately.
