@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { measureFeatureProof, checkFeatureProof } from './feature-proof.js';
 import type { FlagProvider } from './launchdarkly.js';
 import type { Hosting, Snapshot } from './railway.js';
-import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, loadAttempt, loadRecord, releaseReconciledLock, targetSchema, type EvidenceRecord, type Target } from './evidence.js';
+import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, loadAttempt, loadRecord, ownsLock, reconciliationCommand, releaseReconciledLock, targetSchema, type EvidenceRecord, type Target } from './evidence.js';
 import { observe, observationOptionsSchema } from './observe.js';
 import { authorizeMutation } from './promotion.js';
 export type Operation = { purpose?: 'release' | 'recovery-rehearsal'; operation: 'deploy' | 'rollback' | 'observe' | 'reconcile'; targetName: 'staging' | 'live'; target: Target; releaseDir?: string; changeReference?: string; image?: string; sourceSha?: string; deploymentId?: string; restoreRecord?: string; attempt?: string; apply?: boolean; durationSeconds?: number; maxDurationSeconds?: number; rate?: number; maxRequests?: number };
@@ -27,13 +27,14 @@ export async function execute(request: Operation, hosting: Hosting, root: string
   if (request.operation === 'reconcile') {
     if (!request.attempt) throw new LabError('ATTEMPT_REQUIRED', 'Supply the original --attempt UUID to reconcile.');
     prior = await loadAttempt(root, request.attempt);
-    if (prior.outcome !== 'unknown_outcome') throw new LabError('NOT_UNCERTAIN', 'Only an unknown outcome can be reconciled; inspect the completed record.');
+    if (prior.outcome !== 'unknown_outcome' && !await ownsLock(root, request.target, request.attempt)) throw new LabError('NOT_UNCERTAIN', 'Reconcile an unknown attempt or a completed attempt that still owns its environment lock.');
   }
   if (prior && (fingerprint(prior.target) !== fingerprint(request.target) || prior.targetName !== request.targetName)) throw new LabError('RESTORE_TARGET_MISMATCH', 'The evidence belongs to a different target. Use evidence for this exact environment.');
+  const terminalCleanup = request.operation === 'reconcile' && prior!.outcome !== 'unknown_outcome' && prior!.outcome !== 'verified';
   await hosting.assertScope();
   if (mutating && !request.apply) {
     await hosting.snapshot();
-    return { outcome: 'preview', reasonCodes: ['APPLY_REQUIRED'], recordPath: '', image: request.image ?? prior?.requestedImage, target: request.targetName, changeReference };
+    return { outcome: 'preview', attemptId: undefined, recoveryInstruction: undefined, cleanupWarning: undefined, reasonCodes: ['APPLY_REQUIRED'], recordPath: '', image: request.image ?? prior?.requestedImage, target: request.targetName, changeReference };
   }
   const journal = new Journal(root);
   const release = mutating ? await acquireLock(root, request.target, journal.attemptId) : undefined;
@@ -52,6 +53,7 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     if (permit) await permit.saveEvidence(`${journal.directory}/release`);
     const before = await hosting.snapshot();
     record.observations.push({ phase: 'before', snapshot: before });
+    if (terminalCleanup) throw new LabError('COMPLETED_ATTEMPT_CLEANUP', 'The earlier attempt already has a terminal unsuccessful result. Its owned lock can be cleared after this read-only record is saved. Inspect the earlier result and resolve fresh authority for any recovery.');
     if (permit && before.configurationFingerprint !== permit.expectedConfiguration) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'Current provider configuration differs from the approved request.');
     if (before.active.length > 1 || (before.latestId && before.active.length && !before.active.some(item => item.id === before.latestId))) throw new LabError('UNSTABLE_DEPLOYMENT', 'Wait for the active deployment to settle before operating.');
     if (!record.configurationFingerprint) record.configurationFingerprint = before.configurationFingerprint;
@@ -147,15 +149,22 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     const failure = error instanceof LabError ? error : new LabError('EXECUTION_ERROR', 'Execution or evidence persistence failed. Inspect the retained attempt files and reconcile any mutation.');
     record.outcome = providerMutationAttempted && failure.outcome !== 'failed' ? 'unknown_outcome' : failure.outcome;
     record.reasonCodes = [failure.code];
-    record.recoveryInstruction = `${failure.message}${record.outcome === 'unknown_outcome' ? ` Reconcile attempt ${journal.attemptId}.` : ''}`;
+    record.recoveryInstruction = `${failure.message}${!terminalCleanup && (request.operation === 'reconcile' || record.outcome === 'unknown_outcome') ? ` Run ${reconciliationCommand('reconcile', request.targetName, request.operation === 'reconcile' ? request.attempt! : journal.attemptId, root)}.` : ''}`;
   }
+  let recordPath: string;
   try {
     record.finishedAt = new Date().toISOString();
-    const recordPath = await journal.finish(record);
+    recordPath = await journal.finish(record);
     recordSaved = true;
-    if (record.outcome === 'verified' && request.operation === 'reconcile') await releaseReconciledLock(root, request.target, request.attempt!);
-    return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, recordPath, attemptId: journal.attemptId };
   } finally {
-    if (release && (!providerMutationAttempted || (recordSaved && record.outcome !== 'unknown_outcome'))) await release();
+    if (release && !recordSaved && !providerMutationAttempted) await release();
   }
+  let cleanupWarning: { code: string; recoveryInstruction: string } | undefined;
+  try {
+    if (request.operation === 'reconcile' && (record.outcome === 'verified' || record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP'))) await releaseReconciledLock(root, request.target, request.attempt!);
+    if (release && (!providerMutationAttempted || record.outcome !== 'unknown_outcome')) await release();
+  } catch {
+    cleanupWarning = { code: 'LOCK_CLEANUP_REQUIRED', recoveryInstruction: `The result's saved at ${recordPath}, but lock cleanup failed. Run ${reconciliationCommand('reconcile', request.targetName, request.operation === 'reconcile' ? request.attempt! : journal.attemptId, root)} before another mutation.` };
+  }
+  return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, recordPath, attemptId: journal.attemptId, cleanupWarning };
 }

@@ -209,6 +209,34 @@ The work directory keeps intent, authorization, observations, checksummed record
 and locks. Raw samples preserve failures in the denominator; missing responses
 produce a null p95 instead of claiming a complete latency measurement.
 
+### Retained locks after a completed result
+
+If lock removal fails after a result's saved, JSON output keeps `recordPath`,
+`attemptId`, and the measured `outcome`, plus a `cleanupWarning` with code
+`LOCK_CLEANUP_REQUIRED`. The CLI exits 2. Follow that warning's command with the
+same work directory; don't repeat the mutation or delete the lock manually.
+
+`reconcile` and `reconcile-exposure` accept a completed attempt only while its
+UUID still owns that environment's lock. The retained record's UUID must match
+its directory. A missing lock or a different owner rejects completed-attempt
+cleanup. Unknown attempts keep their existing read-only reconciliation path.
+
+For a previously verified result, reconciliation collects fresh provider and
+runtime evidence before clearing the original lock. For a completed unsuccessful
+result, it records provider readback and `COMPLETED_ATTEMPT_CLEANUP`, clears only
+the original owned lock, and stays blocked. That cleanup supplies no release
+eligibility; inspect the earlier failure and resolve fresh authority for recovery.
+Each path saves a new record and preserves the earlier bytes.
+
+After a failed deployment reconciliation, the recovery command names the original
+attempt. Keep using that UUID until reconciliation succeeds. Cancellation during
+observation can leave an intent without a terminal record; restart with the
+original attempt and retained work directory. Previously absent responses remain
+absent from the earlier record.
+
+The [local maintenance proof](../.plan/local-operator-recovery.md) records the
+synthetic fixtures and checks behind this contract.
+
 ## Automated hosted recovery test
 
 Each successful **Publish image** run on main triggers **Queue hosted recovery

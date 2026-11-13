@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, releaseReconciledLock, targetSchema } from './evidence.js';
+import { acquireLock, assertAttemptIdentity, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, ownsLock, reconciliationCommand, releaseReconciledLock, targetSchema } from './evidence.js';
 import { flagSnapshotSchema, desiredFlagState, flagStateSchema, validateFlagSnapshot, type FlagProvider } from './launchdarkly.js';
 import { predecessor, stageSchema, type ExposureStage } from './launchdarkly.js';
 import { exposurePolicyDigest, rosterDigest, originalQueryBaselines, type QueryBaseline, exposurePolicy } from './exposure-observe.js';
@@ -135,11 +135,17 @@ export async function loadExposureRecord(path: string) {
 }
 async function loadExposureAttempt(root: string, attempt: string) {
   z.string().uuid().parse(attempt); const directory = join(root, 'exposure', 'attempts', attempt);
-  try { return { directory, record: await loadExposureRecord(join(directory, 'exposure-record.json')) }; }
+  try {
+    const record = await loadExposureRecord(join(directory, 'exposure-record.json'));
+    assertAttemptIdentity(record.attemptId, attempt);
+    return { directory, record };
+  }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   const intent = (await readdir(directory)).sort().find(name => name.endsWith('-intent.json'));
   if (!intent) throw new LabError('MISSING_EXPOSURE_INTENT', 'Restore the original durable exposure intent before reconciliation.');
-  return { directory, record: exposureRecordSchema.parse(JSON.parse(await readFile(join(directory, intent), 'utf8')).observation) };
+  const record = exposureRecordSchema.parse(JSON.parse(await readFile(join(directory, intent), 'utf8')).observation);
+  assertAttemptIdentity(record.attemptId, attempt);
+  return { directory, record };
 }
 export type ExposureOperation = { operation: 'expose' | 'disable' | 'observe-exposure' | 'reconcile-exposure'; targetName: 'staging' | 'live'; releaseDir?: string; stage?: Exclude<ExposureStage, 'off'>; apply?: boolean; attempt?: string; rehearseResponseLoss?: boolean };
 export async function executeExposure(input: ExposureOperation, hosting: Hosting, flags: FlagProvider, root: string, transport: typeof fetch = fetch) {
@@ -148,9 +154,10 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
   let prior: Awaited<ReturnType<typeof loadExposureAttempt>> | undefined;
   if (input.operation === 'reconcile-exposure') {
     prior = await loadExposureAttempt(root, z.string().uuid().parse(input.attempt));
-    if (prior.record.outcome !== 'unknown_outcome' || prior.record.request.targetName !== input.targetName) throw new LabError('NOT_UNCERTAIN', 'Reconcile an unknown exposure attempt for this exact target.');
+    if (prior.record.request.targetName !== input.targetName || prior.record.outcome !== 'unknown_outcome' && !await ownsLock(root, prior.record.request.target, input.attempt!)) throw new LabError('NOT_UNCERTAIN', 'Reconcile an unknown exposure attempt or a completed attempt that still owns its environment lock, for this exact target.');
   }
   const directory = prior ? join(prior.directory, 'release') : input.releaseDir;
+  const terminalCleanup = prior && prior.record.outcome !== 'unknown_outcome' && prior.record.outcome !== 'verified';
   if (!directory) throw new LabError('EXPOSURE_PROOF_REQUIRED', 'Use --release-dir with an exact authenticated exposure request.');
   const verified = await verifyExposureRelease(directory, !!prior), request = verified.request;
   if (request.targetName !== input.targetName || (!prior && request.operation !== input.operation) || (input.operation === 'expose' && request.stage !== input.stage)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'Command and resolved exposure request disagree.');
@@ -161,7 +168,7 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
   const beforeProvider = await hosting.snapshot(); assertServing(beforeProvider, subject);
   const before = await flags.snapshot();
   if (!prior && before.digest !== request.before.digest) throw new LabError('FLAG_STATE_CHANGED', 'The flag changed since request resolution. No PATCH was sent.');
-  if (mutating && !input.apply) return { outcome: 'preview', reasonCodes: ['APPLY_REQUIRED'], target: request.targetName, stage: request.stage, requestDigest: verified.requestDigest, recordPath: '' };
+  if (mutating && !input.apply) return { outcome: 'preview', attemptId: undefined, recoveryInstruction: undefined, cleanupWarning: undefined, reasonCodes: ['APPLY_REQUIRED'], target: request.targetName, stage: request.stage, requestDigest: verified.requestDigest, recordPath: '' };
   // Authenticate the actual protected job before obtaining a mutation lock.
   const identity = mutating ? await protectedRun(request, verified.requestDigest) : null;
   const journal = new Journal(join(root, 'exposure'));
@@ -171,6 +178,7 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
   try {
     await journal.initialize(); await preserveRelease(join(journal.directory, 'release'), verified);
     await journal.append('intent', record); await journal.append('before-provider', beforeProvider); await journal.append('before-flag', before);
+    if (terminalCleanup) throw new LabError('COMPLETED_ATTEMPT_CLEANUP', 'The earlier attempt already has a terminal unsuccessful result. Its owned lock can be cleared after this read-only record is saved. Inspect the earlier result and resolve fresh authority for any recovery.');
     if (mutating) {
       const fresh = await verifyExposureRelease(directory);
       if (fresh.requestDigest !== verified.requestDigest) throw new LabError('EXPOSURE_ATTACHMENT_CHANGED', 'Approved request changed before PATCH.');
@@ -199,14 +207,21 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
     record.recoveryInstruction = prior ? 'Desired provider state and sampled behavior observed. This does not attribute the change to the original PATCH.' : '';
   } catch (error) {
     const failure = error instanceof LabError ? error : new LabError('EXPOSURE_EXECUTION_ERROR', 'Exposure execution or persistence failed. Inspect retained evidence.');
-    record.outcome = (effectAttempted || prior) && !(measuredStableState && ['EXPOSURE_HOLD', 'EXPOSURE_WINDOW'].includes(failure.code)) ? 'unknown_outcome' : failure.outcome;
+    record.outcome = (effectAttempted || prior) && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' && !(measuredStableState && ['EXPOSURE_HOLD', 'EXPOSURE_WINDOW'].includes(failure.code)) ? 'unknown_outcome' : failure.outcome;
     record.reasonCodes = [failure.code]; record.recoveryInstruction = `${failure.message}${record.outcome === 'blocked' && measuredStableState ? ' Desired flag state is known but health is not verified. Independently authorize disable; no expansion evidence was issued.' : ''}${record.outcome === 'unknown_outcome' ? ` Reconcile exposure attempt ${prior?.record.attemptId ?? journal.attemptId}.` : ''}`;
   }
+  let recordPath: string;
   try {
-    record.finishedAt = new Date().toISOString(); const recordPath = await saveExposureRecord(journal, record); saved = true;
-    if (prior && (record.outcome === 'verified' || record.outcome === 'blocked' && measuredStableState)) await releaseReconciledLock(root, request.target, prior.record.attemptId);
-    return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, attemptId: journal.attemptId, recordPath };
-  } finally { if (release && (!effectAttempted || saved && record.outcome !== 'unknown_outcome')) await release(); }
+    record.finishedAt = new Date().toISOString(); recordPath = await saveExposureRecord(journal, record); saved = true;
+  } finally { if (release && !saved && !effectAttempted) await release(); }
+  let cleanupWarning: { code: string; recoveryInstruction: string } | undefined;
+  try {
+    if (prior && (record.outcome === 'verified' || record.outcome === 'blocked' && measuredStableState || record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP'))) await releaseReconciledLock(root, request.target, prior.record.attemptId);
+    if (release && (!effectAttempted || record.outcome !== 'unknown_outcome')) await release();
+  } catch {
+    cleanupWarning = { code: 'LOCK_CLEANUP_REQUIRED', recoveryInstruction: `The result's saved at ${recordPath}, but lock cleanup failed. Run ${reconciliationCommand('reconcile-exposure', request.targetName, prior?.record.attemptId ?? journal.attemptId, root)} before another mutation.` };
+  }
+  return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, attemptId: journal.attemptId, recordPath, cleanupWarning };
 }
 /** Provider-assigned rule/clause IDs may be new; all behavioral fields must agree. */
 export function matchesDesired(actual: z.infer<typeof flagStateSchema>, desired: z.infer<typeof flagStateSchema>) {

@@ -69,6 +69,7 @@ Local deploy/rollback are previews. Apply requires authenticated GitHub OIDC and
 Output: JSON on stdout, progress on stderr. Exit 0 verified/preview/authenticated diagnostic; 1 invalid/failed; 2 blocked/unknown.
 Diagnostic authentication always reports authorized=false and cannot establish release eligibility.
 Railway rollback returns acknowledgment only: apply exits 2 and retains its lock until reconcile verifies recovery.
+A saved result with cleanupWarning also exits 2. Reconcile its named attempt to reobserve and clear the owned lock.
 `;
 
 export async function runCli(args: string[], environment: NodeJS.ProcessEnv = process.env, stdout: (text: string) => void = text => process.stdout.write(text), stderr: (text: string) => void = text => process.stderr.write(text)) {
@@ -130,7 +131,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       if (operation === 'expose') exposure.stage = enabledStageSchema.parse(values.stage);
       const result = await (exposure.rehearseResponseLoss ? rehearseExposureRecovery : executeExposure)(exposure, hosting, flags, values['work-dir'] ?? 'work');
       stdout(`${JSON.stringify(result)}\n`);
-      return result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
+      return result.cleanupWarning ? 2 : result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
     }
     const request: Operation = { operation: (operation === 'rehearse-recovery' ? 'deploy' : operation) as Operation['operation'], purpose: operation === 'rehearse-recovery' ? 'recovery-rehearsal' : 'release', targetName, target, apply: values.apply ?? false };
     if (values['release-dir'] !== undefined) request.releaseDir = values['release-dir'];
@@ -161,7 +162,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     stderr(`${operation}: checking ${targetName}; evidence directory ${resolve(values['work-dir'] ?? 'work')}\n`);
     const result = await (operation === 'rehearse-recovery' ? rehearseRecovery : execute)(request, hosting, values['work-dir'] ?? 'work', fetch, flags);
     stdout(`${JSON.stringify(result)}\n`);
-    return result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
+    return result.cleanupWarning ? 2 : result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
   } catch (error) {
     const message = error instanceof z.ZodError ? error.issues.map(issue => `${issue.path.join('.') || 'argument'}: ${issue.message}`).join('; ') : error instanceof SyntaxError ? 'Configuration is not valid JSON.' : error instanceof LabError ? error.message : 'Command could not complete. Check configuration, file paths, and evidence permissions.';
     stdout(`${JSON.stringify({ outcome: error instanceof LabError ? error.outcome : 'failed', reasonCodes: [error instanceof LabError ? error.code : 'INVALID_INPUT_OR_IO'], recoveryInstruction: `${message} Run npm run lab -- --help.` })}\n`);

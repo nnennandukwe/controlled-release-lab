@@ -121,3 +121,36 @@ it('preserves a real provider failure without claiming that the simulated respon
   expect(JSON.parse(await readFile(join(root, 'work/attempts', attempts[0]!, 'record.json'), 'utf8'))).toMatchObject({ outcome: 'unknown_outcome', reasonCodes: ['PROVIDER_TRANSPORT'] });
   expect(await readdir(join(root, 'work/locks'))).toHaveLength(1);
 });
+
+it.each([2, 3])('retains the correct effect certainty when protected identity is rejected at OIDC read %s', async rejectedRead => {
+  const { root, request } = await fixture();
+  const authorizedTransport = globalThis.fetch;
+  let identityReads = 0;
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input, init) => {
+    if (String(input).startsWith('https://test.actions.githubusercontent.com/oidc') && ++identityReads === rejectedRead) return Response.json({ value: 'unsigned-identity' });
+    return authorizedTransport(input, init);
+  }));
+  let source: string | null = null;
+  const hosting: Hosting = {
+    assertScope: vi.fn(async () => {}), snapshot: vi.fn(async () => ({ sourceImage: source, latestId: null, active: [], configurationFingerprint: request.configurationFingerprint })),
+    deployment: vi.fn(), deploy: vi.fn(), rollback: vi.fn(), updateImage: vi.fn(async image => { source = image; }),
+  };
+  const work = join(root, 'work');
+  const result = await execute({ operation: 'deploy', targetName: 'staging', target: request.target, releaseDir: root, apply: true }, hosting, work);
+  expect(result).toMatchObject({ outcome: rejectedRead === 2 ? 'blocked' : 'unknown_outcome', reasonCodes: ['AUTHORIZATION_REJECTED'] });
+  expect(hosting.updateImage).toHaveBeenCalledTimes(rejectedRead === 2 ? 0 : 1);
+  expect(hosting.deploy).not.toHaveBeenCalled(); expect(hosting.rollback).not.toHaveBeenCalled();
+  expect(await readdir(join(work, 'locks'))).toHaveLength(rejectedRead === 2 ? 0 : 1);
+  if (rejectedRead === 3) expect(result.recoveryInstruction).toContain(`--attempt ${result.attemptId}`);
+});
+
+it('rejects an expired request through the real authorization gate before provider access', async () => {
+  const { root, request } = await fixture();
+  request.issuedAt = new Date(Date.now() - 600000).toISOString();
+  request.expiresAt = new Date(Date.now() - 1000).toISOString();
+  await writeFile(join(root, 'release-request.json'), JSON.stringify(request));
+  const hosting = { assertScope: vi.fn(), updateImage: vi.fn(), deploy: vi.fn(), rollback: vi.fn() } as unknown as Hosting;
+  await expect(execute({ operation: 'deploy', targetName: 'staging', target: request.target, releaseDir: root, apply: true }, hosting, join(root, 'work'))).rejects.toMatchObject({ code: 'RELEASE_REQUEST_EXPIRED' });
+  expect(hosting.assertScope).not.toHaveBeenCalled();
+  await expect(readdir(join(root, 'work'))).rejects.toMatchObject({ code: 'ENOENT' });
+});

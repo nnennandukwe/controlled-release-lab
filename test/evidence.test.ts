@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { acquireLock, Journal, loadRecord, fingerprint, type EvidenceRecord } from '../tools/evidence.js';
+import { acquireLock, Journal, loadAttempt, loadRecord, fingerprint, type EvidenceRecord } from '../tools/evidence.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.map(root => rm(root, { recursive: true, force: true }))); roots.length = 0; });
@@ -29,4 +29,12 @@ it('writes checksummed evidence once and refuses changed bytes', async () => {
 it('canonicalizes object property order without ignoring meaningful changes', () => {
   expect(fingerprint({ a: 1, b: 2 })).toBe(fingerprint({ b: 2, a: 1 }));
   expect(fingerprint({ a: 1 })).not.toBe(fingerprint({ a: 2 }));
+});
+
+it.each(['record', 'intent'])('rejects a %s stored under another attempt UUID', async format => {
+  const directory = await root(), journal = new Journal(directory);
+  await journal.initialize();
+  const record: EvidenceRecord = { schemaVersion: 1, attemptId: '11111111-1111-4111-8111-111111111111', operation: 'deploy', targetName: 'staging', target, requestedImage: null, requestedSourceSha: null, rollbackTarget: null, deploymentId: null, configurationFingerprint: null, startedAt: new Date().toISOString(), finishedAt: null, outcome: 'unknown_outcome', reasonCodes: [], recoveryInstruction: '', observations: [] };
+  if (format === 'record') await journal.finish(record); else await journal.append('intent', record);
+  await expect(loadAttempt(directory, journal.attemptId)).rejects.toMatchObject({ code: 'ATTEMPT_IDENTITY_MISMATCH' });
 });

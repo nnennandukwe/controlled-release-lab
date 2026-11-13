@@ -41,16 +41,36 @@ export async function loadRecord(path: string) {
 export async function loadAttempt(root: string, attemptId: string) {
   z.string().uuid().parse(attemptId);
   const directory = join(root, 'attempts', attemptId);
-  try { return await loadRecord(join(directory, 'record.json')); }
+  try {
+    const record = await loadRecord(join(directory, 'record.json'));
+    assertAttemptIdentity(record.attemptId, attemptId);
+    return record;
+  }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   const entries = (await readdir(directory)).sort();
   const intent = entries.find(name => name.endsWith('-intent.json'));
   if (!intent) throw new LabError('MISSING_INTENT', 'This attempt has no durable intent. Inspect provider state before any further mutation.');
   const record = recordSchema.parse(JSON.parse(await readFile(join(directory, intent), 'utf8')).observation);
+  assertAttemptIdentity(record.attemptId, attemptId);
   for (const name of entries.filter(name => name.endsWith('-accepted.json'))) {
     record.deploymentId = z.string().uuid().parse(JSON.parse(await readFile(join(directory, name), 'utf8')).observation.deploymentId);
   }
   return record;
+}
+
+export function assertAttemptIdentity(recordAttempt: string, requestedAttempt: string) {
+  if (recordAttempt !== requestedAttempt) throw new LabError('ATTEMPT_IDENTITY_MISMATCH', 'The retained record belongs to another attempt. Restore the original attempt directory before reconciliation.');
+}
+
+export async function ownsLock(root: string, target: Target, attemptId: string) {
+  const path = join(root, 'locks', `${fingerprint([target.projectId, target.serviceId, target.environmentId])}.lock`);
+  try { return await readFile(path, 'utf8') === attemptId; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; return false; }
+}
+
+export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposure', target: 'staging' | 'live', attempt: string, root: string) {
+  const quotedRoot = `'${root.replaceAll("'", "'\\''")}'`;
+  return `npm run lab -- ${operation} --target ${target} --attempt ${attempt} --work-dir ${quotedRoot}`;
 }
 
 export class Journal {

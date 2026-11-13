@@ -1,3 +1,4 @@
+import * as fs from 'node:fs/promises';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,8 +11,9 @@ import type { Hosting, Snapshot, Deployment } from '../tools/railway.js';
 // promotion.test.ts exercises the real mandatory authorization gate.
 vi.mock('../tools/promotion.js', () => ({ authorizeMutation: async (request: Operation) => ({ request, expectedConfiguration: 'config-a', decision: { fixture: 'authorized provider transaction' }, saveEvidence: async () => {}, assertCurrent: async () => {} }) }));
 
+vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>() }));
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.map(root => rm(root, { recursive: true, force: true }))); roots.length = 0; });
+afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.map(root => rm(root, { recursive: true, force: true }))); roots.length = 0; });
 async function root() { const path = await mkdtemp(join(tmpdir(), 'release-operations-')); roots.push(path); return path; }
 const target = { projectId: '11111111-1111-4111-8111-111111111111', serviceId: '22222222-2222-4222-8222-222222222222', environmentId: '33333333-3333-4333-8333-333333333333', url: 'https://example.up.railway.app' };
 const image = `ghcr.io/example/lab@sha256:${'b'.repeat(64)}`;
@@ -254,4 +256,73 @@ it('refuses signed-observation preparation when live source differs from its exp
   const result = await execute({ ...request, operation: 'observe', sourceSha: 'f'.repeat(40), apply: false }, hosting, await root(), traffic);
   expect(result.outcome).toBe('blocked');
   expect(result.reasonCodes).toContain('LIVE_IDENTITY_MISMATCH');
+});
+
+// Simulate interruption after the terminal record's commit and before lock cleanup.
+it('recovers a completed deployment whose owned lock survived cleanup failure', async () => {
+  const directory = await root(), hosting = host();
+  const unlink = fs.unlink;
+  const cleanup = vi.spyOn(fs, 'unlink').mockImplementation(async path => {
+    if (String(path).endsWith('.lock')) throw new Error('Injected lock cleanup failure');
+    return unlink(path);
+  });
+  const completed = await execute(request, hosting, directory, traffic);
+  expect(completed).toMatchObject({ outcome: 'verified', cleanupWarning: { code: 'LOCK_CLEANUP_REQUIRED' } });
+  expect(completed.cleanupWarning?.recoveryInstruction).toContain(completed.attemptId!);
+  cleanup.mockRestore();
+  const [attempt] = await readdir(join(directory, 'attempts'));
+  const path = join(directory, 'attempts', attempt!, 'record.json'), bytes = await readFile(path);
+  expect((await loadRecord(path)).outcome).toBe('verified');
+  await expect(execute(request, hosting, directory, traffic)).rejects.toMatchObject({ code: 'OPERATION_LOCKED' });
+  const recovered = await execute({ ...request, operation: 'reconcile', attempt: attempt! }, hosting, directory, traffic);
+  expect(recovered.outcome).toBe('verified');
+  expect(await readdir(join(directory, 'locks'))).toHaveLength(0);
+  expect(await readFile(path)).toEqual(bytes);
+  expect(hosting.deploy).toHaveBeenCalledOnce();
+});
+
+it.each(['missing', 'another owner'])('rejects completed deployment reconciliation when its lock has %s', async ownership => {
+  const directory = await root(), hosting = host();
+  const completed = await execute(request, hosting, directory, traffic);
+  const attempt = completed.attemptId!;
+  if (ownership === 'another owner') await (await import('../tools/evidence.js')).acquireLock(directory, target, 'another-attempt');
+  vi.mocked(hosting.assertScope).mockClear();
+  await expect(execute({ ...request, operation: 'reconcile', attempt }, hosting, directory, traffic)).rejects.toMatchObject({ code: 'NOT_UNCERTAIN' });
+  expect(hosting.assertScope).not.toHaveBeenCalled();
+  expect(await readdir(join(directory, 'locks'))).toHaveLength(ownership === 'missing' ? 0 : 1);
+});
+
+it('names the original attempt after a failed reconciliation measurement', async () => {
+  const directory = await root(), hosting = host(), deploy = hosting.deploy;
+  hosting.deploy = vi.fn(async () => { await deploy(); throw new LabError('PROVIDER_TRANSPORT', 'Lost response', 'unknown_outcome'); });
+  const original = await execute(request, hosting, directory, traffic);
+  const failed = await execute({ ...request, operation: 'reconcile', attempt: original.attemptId! }, hosting, directory, async () => Response.json({}, { status: 503 }));
+  expect(failed.outcome).toBe('failed');
+  expect(failed.recoveryInstruction).toContain(`--attempt ${original.attemptId}`);
+  expect(failed.recoveryInstruction).not.toContain(`--attempt ${failed.attemptId}`);
+  expect(await readdir(join(directory, 'locks'))).toHaveLength(1);
+  expect((await execute({ ...request, operation: 'reconcile', attempt: original.attemptId! }, hosting, directory, traffic)).outcome).toBe('verified');
+  expect(hosting.deploy).toHaveBeenCalledOnce();
+});
+
+it('clears a completed pre-effect rejection without requiring the rejected deployment to appear', async () => {
+  const directory = await root(), hosting = host();
+  const snapshot = hosting.snapshot;
+  hosting.snapshot = vi.fn(async () => ({ ...await snapshot(), configurationFingerprint: 'unapproved-config' }));
+  const unlink = fs.unlink;
+  const cleanup = vi.spyOn(fs, 'unlink').mockImplementation(async path => {
+    if (String(path).endsWith('.lock')) throw new Error('Injected lock cleanup failure');
+    return unlink(path);
+  });
+  const rejected = await execute(request, hosting, directory, traffic);
+  cleanup.mockRestore();
+  expect(rejected).toMatchObject({ outcome: 'blocked', reasonCodes: ['RELEASE_SUBJECT_MISMATCH'], cleanupWarning: { code: 'LOCK_CLEANUP_REQUIRED' } });
+  const bytes = await readFile(rejected.recordPath);
+  const recovered = await execute({ ...request, operation: 'reconcile', attempt: rejected.attemptId! }, hosting, directory, traffic);
+  expect(recovered.outcome).toBe('blocked');
+  expect(recovered.reasonCodes).toContain('COMPLETED_ATTEMPT_CLEANUP');
+  expect(await readdir(join(directory, 'locks'))).toHaveLength(0);
+  expect(await readFile(rejected.recordPath)).toEqual(bytes);
+  expect(hosting.updateImage).not.toHaveBeenCalled();
+  expect(hosting.deploy).not.toHaveBeenCalled();
 });
