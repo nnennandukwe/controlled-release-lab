@@ -5,7 +5,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, it } from 'vitest';
-import { acquireLock, Journal, loadRecord, type EvidenceRecord } from '../tools/evidence.js';
+import { readLockOwner, acquireLock, Journal, loadRecord, type EvidenceRecord } from '../tools/evidence.js';
 
 it.each([['blocked', 'snapshot'], ['verified', 'snapshot'], ['blocked', 'scope'], ['verified', 'scope']] as const)('retries a failed %s-owner %s read using the emitted CLI command and custom config', async (outcome, phase) => {
   const temporary = await mkdtemp(join(tmpdir(), 'operator-hints-'));
@@ -57,7 +57,7 @@ it.each([['blocked', 'snapshot'], ['verified', 'snapshot'], ['blocked', 'scope']
     expect(result.reasonCodes).toEqual(['PROVIDER_HTTP']);
     if (phase === 'snapshot') expect(await loadRecord(result.recordPath)).toMatchObject({ outcome: 'blocked', target });
     else expect(result.recordPath).toBeUndefined();
-    expect(await readdir(join(root, 'locks'))).toHaveLength(1);
+    expect(await readLockOwner(root, target)).toEqual(expect.any(String));
     const command = (result.recoveryInstruction as string).match(/ Run (npm run lab -- .+)\.$/)?.[1];
     expect(command, result.recoveryInstruction).toBeDefined();
     expect(command).toContain(`--attempt ${journal.attemptId}`);
@@ -69,7 +69,7 @@ it.each([['blocked', 'snapshot'], ['verified', 'snapshot'], ['blocked', 'scope']
     expect(retryResult.reasonCodes).toEqual([outcome === 'blocked' ? 'COMPLETED_ATTEMPT_CLEANUP' : 'PROVIDER_HTTP']);
     if (outcome === 'blocked' || phase === 'snapshot') expect(await loadRecord(retryResult.recordPath)).toMatchObject({ outcome: 'blocked', target });
     else expect(retryResult.recordPath).toBeUndefined();
-    expect(await readdir(join(root, 'locks'))).toHaveLength(outcome === 'blocked' ? 0 : 1);
+    expect(await readLockOwner(root, target)).toEqual(outcome === 'blocked' ? undefined : expect.any(String));
     for (const [path, bytes] of original) expect(await readFile(path)).toEqual(bytes);
     expect(mutations).toBe(0);
     expect(snapshots).toBe(phase === 'snapshot' ? 2 : outcome === 'blocked' ? 1 : 0);

@@ -2,7 +2,7 @@ import { open, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
-import { fingerprint, Journal, LabError, loadRecord } from './evidence.js';
+import { fingerprint, Journal, LabError, readLockOwner, loadRecord } from './evidence.js';
 import { execute, type Operation } from './operations.js';
 import type { FlagProvider } from './launchdarkly.js';
 import type { Hosting } from './railway.js';
@@ -32,9 +32,8 @@ export async function rehearseRecovery(request: Operation, hosting: Hosting, roo
   const deploymentId = z.string().uuid().parse(receivedDeployment);
   const originalBytes = await readFile(original.recordPath);
   const originalRecord = await loadRecord(original.recordPath);
-  const lock = join(root, 'locks', `${fingerprint([request.target.projectId, request.target.serviceId, request.target.environmentId])}.lock`);
   const intentFiles = await readdir(join(root, 'attempts', original.attemptId));
-  if (originalRecord.deploymentId !== null || await readFile(lock, 'utf8') !== original.attemptId || !intentFiles.some(name => name.endsWith('-intent.json'))) throw new LabError('REHEARSAL_STATE_FAILED', 'The uncertain operation did not preserve its intent and lock without adopting the discarded response.');
+  if (originalRecord.deploymentId !== null || await readLockOwner(root, request.target) !== original.attemptId || !intentFiles.some(name => name.endsWith('-intent.json'))) throw new LabError('REHEARSAL_STATE_FAILED', 'The uncertain operation did not preserve its intent and lock without adopting the discarded response.');
   await fixture.append('unknown-outcome-preserved', { originalAttemptId: original.attemptId, originalRecordDigest: fingerprint(originalBytes.toString()), calls });
 
   // Wait only by reading. Reconcile itself receives no hidden deployment ID.
@@ -50,8 +49,7 @@ export async function rehearseRecovery(request: Operation, hosting: Hosting, roo
   const callsBeforeRecovery = fingerprint(calls);
   const recovered = await execute({ operation: 'reconcile', targetName: 'staging', target: request.target, attempt: original.attemptId, durationSeconds: 60, maxDurationSeconds: 90, rate: 2, maxRequests: 120 }, wrapped, root, transport, flags);
   const originalRecordUnchanged = originalBytes.equals(await readFile(original.recordPath));
-  let lockReleased = false;
-  try { await readFile(lock); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; lockReleased = true; }
+  const lockReleased = await readLockOwner(root, request.target) === undefined;
   if (!originalRecordUnchanged || fingerprint(calls) !== callsBeforeRecovery || calls.updateCalls !== 1 || calls.deployCalls !== 1 || calls.rollbackCalls !== 0) throw new LabError('REHEARSAL_STATE_FAILED', 'Recovery changed prior evidence or repeated a provider mutation.');
   const record = await loadRecord(recovered.recordPath);
   if (recovered.outcome === 'verified' && (!lockReleased || record.deploymentId !== deploymentId || record.requestedImage !== originalRecord.requestedImage || record.requestedSourceSha !== originalRecord.requestedSourceSha || record.configurationFingerprint !== originalRecord.configurationFingerprint)) throw new LabError('REHEARSAL_STATE_FAILED', 'Recovery did not establish the expected deployment, source, configuration and released lock.');

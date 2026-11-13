@@ -111,3 +111,37 @@ released only its owned lock, preserved earlier bytes and observed unchanged
 provider state. Scope rejection correctly claimed no newly saved failure record.
 The protected opt-in job now runs both phases separately and retains both
 receipts. No application mutation was attempted in either check.
+
+
+## Receipt format and operations authority
+
+The dated JSON files above are sanitized historical summaries assembled from
+local receipts. They omit machine-local artifact paths and add derived checksums
+or configured pipeline details. Their pipeline fields describe the intended
+main-only workflow, rather than an executed CI run. Earlier files retain their
+original observations. New runs emit `public-receipt.json` directly from the
+producer, including measured file hashes, relative paths and actual local or
+GitHub Actions execution metadata. Copies of that producer output must preserve
+its bytes.
+
+The opt-in rehearsal belongs to the protected release-operations job, alongside
+its staging doctor. It uses the same environment-scoped operations credential
+after main/ref and owner-approval checks. Generic Verify CI and coding tasks
+receive no Railway credential. The provider-read allowlist also rejects writes
+inside this rehearsal. Existing credential scope and account permissions stay
+unchanged.
+
+## Concurrent cleanup and gateway retries
+
+Three real-filesystem schedules reproduced stale cleanup deleting a newer
+owner's lock. Locks now publish a populated owner directory through POSIX rename;
+release removes only the original UUID's marker. An empty outer directory means
+the environment's available. Existing plain-file locks can still be reconciled;
+all subsequent acquisitions use directories, which a stale legacy unlink can't
+remove. Operators must use the upgraded version consistently for a retained work
+directory. This covers process interruption on local macOS/Linux filesystems.
+
+The hosted preload also used to parse every HTTP response as JSON before the
+Railway adapter could inspect it. HTML 502/503/504 responses reproduced aborted
+retries. The logger now records their unknown error count as null and returns
+the original response to the adapter's bounded retry path.

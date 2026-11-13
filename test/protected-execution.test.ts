@@ -9,7 +9,7 @@ import { generateKeyPair, SignJWT } from 'jose';
 import { rehearseRecovery } from '../tools/recovery-rehearsal.js';
 import { execute } from '../tools/operations.js';
 import { authorizeMutation, policy, policyDigest, releaseRequestSchema } from '../tools/promotion.js';
-import { LabError } from '../tools/evidence.js';
+import { readLockOwner, LabError } from '../tools/evidence.js';
 import { sha256 } from '../tools/setup-verifier.js';
 import type { Hosting } from '../tools/railway.js';
 
@@ -119,7 +119,7 @@ it('preserves a real provider failure without claiming that the simulated respon
   const attempts = await readdir(join(root, 'work/attempts'));
   expect(attempts).toHaveLength(1);
   expect(JSON.parse(await readFile(join(root, 'work/attempts', attempts[0]!, 'record.json'), 'utf8'))).toMatchObject({ outcome: 'unknown_outcome', reasonCodes: ['PROVIDER_TRANSPORT'] });
-  expect(await readdir(join(root, 'work/locks'))).toHaveLength(1);
+  expect(await readLockOwner(join(root, 'work'), request.target)).toEqual(expect.any(String));
 });
 
 it.each([2, 3])('retains the correct effect certainty when protected identity is rejected at OIDC read %s', async rejectedRead => {
@@ -140,7 +140,7 @@ it.each([2, 3])('retains the correct effect certainty when protected identity is
   expect(result).toMatchObject({ outcome: rejectedRead === 2 ? 'blocked' : 'unknown_outcome', reasonCodes: ['AUTHORIZATION_REJECTED'] });
   expect(hosting.updateImage).toHaveBeenCalledTimes(rejectedRead === 2 ? 0 : 1);
   expect(hosting.deploy).not.toHaveBeenCalled(); expect(hosting.rollback).not.toHaveBeenCalled();
-  expect(await readdir(join(work, 'locks'))).toHaveLength(rejectedRead === 2 ? 0 : 1);
+  expect(await readLockOwner(work, request.target)).toEqual(rejectedRead === 2 ? undefined : expect.any(String));
   if (rejectedRead === 3) expect(result.recoveryInstruction).toContain(`--attempt ${result.attemptId}`);
 });
 

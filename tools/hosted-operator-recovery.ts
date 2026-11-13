@@ -1,17 +1,18 @@
+import { createHash } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { acquireLock, fingerprint, Journal, LabError, loadRecord, type EvidenceRecord } from './evidence.js';
+import { acquireLock, fingerprint, Journal, LabError, readLockOwner, loadRecord, type EvidenceRecord } from './evidence.js';
 import { Railway } from './railway.js';
 import { requireProtectedEnvironment } from './workflow-guard.js';
 import policy from '../config/release-policy.json' with { type: 'json' };
 
-export type HostedReadEvent = { injected?: boolean; status?: number; errorCount?: number; mutationRejected?: boolean };
+export type HostedReadEvent = { injected?: boolean; status?: number; errorCount?: number | null; mutationRejected?: boolean };
 export function checkHostedReadEvents(events: HostedReadEvent[], failurePhase: 'scope' | 'snapshot' = 'snapshot') {
   const rejected = events.filter(event => event.injected);
   const ordinary = events.filter(event => !event.injected);
-  const successful = ordinary.filter(event => event.status! >= 200 && event.status! < 300 && !event.errorCount);
+  const successful = ordinary.filter(event => event.status! >= 200 && event.status! < 300 && event.errorCount === 0);
   const retried = ordinary.filter(event => [429, 502, 503, 504].includes(event.status!));
   const requiredReads = failurePhase === 'scope' ? 2 : 3;
   if (events.some(event => event.mutationRejected) || events.length > requiredReads * 3 + 1 || rejected.length !== 1 || !(rejected[0]!.errorCount || rejected[0]!.status! >= 400) || successful.length !== requiredReads || successful.length + retried.length !== ordinary.length) throw new LabError('HOSTED_CHECK_FAILED', 'Expected one provider rejection, successful scope/readback checks and only bounded supported read retries without mutation attempts.');
@@ -83,15 +84,14 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
     return JSON.parse(stdout.trim().split('\n').at(-1)!) as { outcome: string; reasonCodes: string[]; recoveryInstruction: string; recordPath?: string };
   };
   const failed = await run(process.execPath, ['--import', 'tsx', 'tools/lab.ts', 'reconcile', '--target', 'staging', '--attempt', journal.attemptId, '--config', config, '--work-dir', root], true);
-  const lock = join(root, 'locks', `${fingerprint([target.projectId, target.serviceId, target.environmentId])}.lock`);
   const command = failed.recoveryInstruction.match(/ Run (npm run lab -- .+)\.$/)?.[1];
-  if (failed.outcome !== 'blocked' || !failed.reasonCodes.some(code => ['PROVIDER_HTTP', 'PROVIDER_REJECTED'].includes(code)) || !command?.includes(`--attempt ${journal.attemptId}`) || !command.includes('--config ') || await readFile(lock, 'utf8') !== journal.attemptId) throw new LabError('HOSTED_CHECK_FAILED', 'The real provider rejection did not preserve the original owner and retry command.');
+  if (failed.outcome !== 'blocked' || !failed.reasonCodes.some(code => ['PROVIDER_HTTP', 'PROVIDER_REJECTED'].includes(code)) || !command?.includes(`--attempt ${journal.attemptId}`) || !command.includes('--config ') || await readLockOwner(root, target) !== journal.attemptId) throw new LabError('HOSTED_CHECK_FAILED', 'The real provider rejection did not preserve the original owner and retry command.');
   if (failurePhase === 'snapshot') {
     if (!failed.recordPath) throw new LabError('HOSTED_CHECK_FAILED', 'The failed snapshot read did not save its record.');
     await loadRecord(failed.recordPath);
   } else if (failed.recordPath) throw new LabError('HOSTED_CHECK_FAILED', 'A rejected scope read must not claim a new saved record.');
   const recovered = await run('/bin/sh', ['-c', command], false);
-  if (recovered.outcome !== 'blocked' || recovered.reasonCodes.join() !== 'COMPLETED_ATTEMPT_CLEANUP' || !recovered.recordPath || (await readdir(join(root, 'locks'))).length !== 0) throw new LabError('HOSTED_CHECK_FAILED', 'Read-only retry did not complete blocked owned-lock cleanup.');
+  if (recovered.outcome !== 'blocked' || recovered.reasonCodes.join() !== 'COMPLETED_ATTEMPT_CLEANUP' || !recovered.recordPath || await readLockOwner(root, target) !== undefined) throw new LabError('HOSTED_CHECK_FAILED', 'Read-only retry did not complete blocked owned-lock cleanup.');
   await loadRecord(recovered.recordPath);
   for (const [path, bytes] of retained) if (!bytes.equals(await readFile(path))) throw new LabError('HOSTED_CHECK_FAILED', 'Original recovery evidence changed.');
   const events = (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as HostedReadEvent);
@@ -100,6 +100,14 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
   if (fingerprint(before) !== fingerprint(after)) throw new LabError('HOSTED_CHECK_FAILED', 'Provider subject changed during the read-only recovery check.');
   const receipt = { schemaVersion: 1, outcome: 'hosted_cleanup_verified', authorized: false, operatorSourceSha, failurePhase, startedAt, finishedAt: new Date().toISOString(), targetName: 'staging', target, before, after, fixture: { syntheticTerminalRecord: true, simulatedFailure: 'one invalid read-only GraphQL field sent to the actual Railway endpoint' }, originalAttemptId: journal.attemptId, originalRecordUnchanged: true, lockRetainedAfterFailure: true, lockReleased: true, providerMutations: 0, providerRequests: events.length + directProviderReads.length, directProviderReads, failedOutcome: failed.outcome, failedReasonCodes: failed.reasonCodes, failedRecordPath: failed.recordPath ?? null, recoveredRecordPath: recovered.recordPath, events, directory };
   await writeFile(join(directory, 'receipt.json'), `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+  // Publish the safe projection in the producer; downstream copies stay byte-exact.
+  const { directory: _directory, failedRecordPath, recoveredRecordPath, ...publicFields } = receipt;
+  const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+  const publicReceipt = { ...publicFields, kind: 'hosted-operator-recovery-public-receipt',
+    execution: environment.GITHUB_ACTIONS === 'true' ? { mode: 'github-actions', runId: environment.GITHUB_RUN_ID, runAttempt: environment.GITHUB_RUN_ATTEMPT, ref: environment.GITHUB_REF } : { mode: 'local' },
+    originalRecordSha256: digest(retained[0]![1]), originalChecksumSha256: digest(retained[1]![1]),
+    failedRecordPath: failedRecordPath ? relative(directory, failedRecordPath) : null, recoveredRecordPath: relative(directory, recoveredRecordPath) };
+  await writeFile(join(directory, 'public-receipt.json'), `${JSON.stringify(publicReceipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
   return receipt;
 }
 

@@ -12,7 +12,7 @@ import { policy, policyDigest, requestValidity } from '../tools/promotion.js';
 import { exposurePolicyDigest, rosterDigest } from '../tools/exposure-observe.js';
 import { exposureRequestSchema, serializeExposure, executeExposure, loadExposureRecord, createExposureEnvelope, verifyExposureRelease } from '../tools/exposure.js';
 import { desiredFlagState, LaunchDarkly } from '../tools/launchdarkly.js';
-import { acquireLock, LabError } from '../tools/evidence.js';
+import { readLockOwner, acquireLock, releaseReconciledLock, LabError } from '../tools/evidence.js';
 import { sha256 } from '../tools/setup-verifier.js';
 import type { Hosting, Snapshot } from '../tools/railway.js';
 import captured from './fixtures/launchdarkly-off.json' with { type:'json' };
@@ -112,20 +112,20 @@ it('refuses stale versions and edited request subjects before PATCH',async()=>{
 });
 it('releases a definite conditional conflict without claiming an uncertain accepted change',async()=>{
  const scenario=await fixture({conflict:true});const result=await executeExposure(scenario.input,scenario.hosting,scenario.flags,join(scenario.root,'work'),scenario.transport);
- expect(result).toMatchObject({outcome:'blocked',reasonCodes:['FLAG_CONFLICT']});expect(scenario.patches()).toBe(1);expect(await readdir(join(scenario.root,'work/locks'))).toHaveLength(0);
+ expect(result).toMatchObject({outcome:'blocked',reasonCodes:['FLAG_CONFLICT']});expect(scenario.patches()).toBe(1);expect(await readLockOwner(join(scenario.root, 'work'), scenario.request.target)).toEqual(undefined);
 });
 it('retains a lost PATCH and shared lock, then reconciles real samples without repeating the effect',async()=>{
  const scenario=await fixture({lost:true}),work=join(scenario.root,'work');
  const original=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);expect(original.outcome).toBe('unknown_outcome');expect(scenario.patches()).toBe(1);
- const bytes=await readFile(original.recordPath);expect(await readdir(join(work,'locks'))).toHaveLength(1);
+ const bytes=await readFile(original.recordPath);expect(await readLockOwner(work, scenario.request.target)).toEqual(expect.any(String));
  await expect(acquireLock(work,scenario.request.target,randomUUID())).rejects.toMatchObject({code:'OPERATION_LOCKED'});
  const current=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
- expect(current.outcome).toBe('verified');expect(scenario.patches()).toBe(1);expect(await readFile(original.recordPath)).toEqual(bytes);expect(await readdir(join(work,'locks'))).toHaveLength(0);
+ expect(current.outcome).toBe('verified');expect(scenario.patches()).toBe(1);expect(await readFile(original.recordPath)).toEqual(bytes);expect(await readLockOwner(work, scenario.request.target)).toEqual(undefined);
  const record=await loadExposureRecord(current.recordPath);expect(record.featureProof?.measurement).toMatchObject({requests:120,failures:0});expect(createExposureEnvelope(record,scenario.request.operator).record.reconciles).toBe(original.attemptId);
 },30000);
 it('holds an unhealthy but known exposure without blocking a separately authorized disable',async()=>{
  const scenario=await fixture({unhealthy:true});const result=await executeExposure(scenario.input,scenario.hosting,scenario.flags,join(scenario.root,'work'),scenario.transport);
- expect(result.outcome).toBe('blocked');expect(await readdir(join(scenario.root,'work/locks'))).toHaveLength(0);
+ expect(result.outcome).toBe('blocked');expect(await readLockOwner(join(scenario.root, 'work'), scenario.request.target)).toEqual(undefined);
  const record=await loadExposureRecord(result.recordPath);expect(record.featureProof?.measurement).toMatchObject({failures:120});expect(()=>createExposureEnvelope(record,scenario.request.operator)).toThrow();
  const failedBytes=await readFile(result.recordPath);
  const disabled=await executeExposure(await scenario.authorizeDisable(),scenario.hosting,scenario.flags,join(scenario.root,'work'),scenario.transport);
@@ -211,7 +211,7 @@ it('reconciles an applied but unhealthy flag and releases only its owned lock wi
  const bytes=await readFile(original.recordPath);
  const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
  expect(recovered.outcome).toBe('blocked');expect(recovered.recoveryInstruction).toContain('Independently authorize disable');
- expect(scenario.patches()).toBe(1);expect(await readFile(original.recordPath)).toEqual(bytes);expect(await readdir(join(work,'locks'))).toHaveLength(0);
+ expect(scenario.patches()).toBe(1);expect(await readFile(original.recordPath)).toEqual(bytes);expect(await readLockOwner(work, scenario.request.target)).toEqual(undefined);
  const record=await loadExposureRecord(recovered.recordPath);expect(()=>createExposureEnvelope(record,scenario.request.operator)).toThrow();
 },30000);
 
@@ -255,22 +255,22 @@ it.each([
  try{result=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);}catch(error){expect(String(error)).toContain('Injected durable I/O failure');}
  spy.mockRestore();
  expect(scenario.patches()).toBe(effected?1:0);
- expect(await readdir(join(work,'locks'))).toHaveLength(effected?1:0);
+ expect(await readLockOwner(work, scenario.request.target)).toEqual(effected ? expect.any(String) : undefined);
  if(result)expect(result.outcome).toBe(effected?'unknown_outcome':'blocked');
  if(suffix==='exposure-record.json.sha256'){
   const attempts=await readdir(join(work,'exposure/attempts'));expect(attempts).toHaveLength(1);
   const originalPath=join(work,'exposure/attempts',attempts[0]!,'exposure-record.json'),bytes=await readFile(originalPath);
   const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:attempts[0]!},scenario.hosting,scenario.flags,work,scenario.transport);
-  expect(recovered.outcome).toBe('verified');expect(scenario.patches()).toBe(1);expect(await readFile(originalPath)).toEqual(bytes);expect(await readdir(join(work,'locks'))).toHaveLength(0);
+  expect(recovered.outcome).toBe('verified');expect(scenario.patches()).toBe(1);expect(await readFile(originalPath)).toEqual(bytes);expect(await readLockOwner(work, scenario.request.target)).toEqual(undefined);
  }
 },30000);
 
 it('does not clear another attempt owner during unhealthy reconciliation',async()=>{
  const scenario=await fixture({lost:true,unhealthy:true}),work=join(scenario.root,'work');
  const original=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
- const locks=await readdir(join(work,'locks')),other=randomUUID();await writeFile(join(work,'locks',locks[0]!),other);
+ const other=randomUUID();await releaseReconciledLock(work,scenario.request.target,original.attemptId!);await acquireLock(work,scenario.request.target,other);
  const result=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
- expect(result.outcome).toBe('blocked');expect(await readFile(join(work,'locks',locks[0]!), 'utf8')).toBe(other);expect(scenario.patches()).toBe(1);
+ expect(result.outcome).toBe('blocked');expect(await readLockOwner(work,scenario.request.target)).toBe(other);expect(scenario.patches()).toBe(1);
 },30000);
 
 it('recovers a completed flag change whose owned lock survived cleanup failure', async () => {
@@ -288,7 +288,7 @@ it('recovers a completed flag change whose owned lock survived cleanup failure',
  const path=join(work,'exposure/attempts',attempt!,'exposure-record.json'),bytes=await readFile(path);
  expect((await loadExposureRecord(path)).outcome).toBe('verified');
  const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:attempt!},scenario.hosting,scenario.flags,work,scenario.transport);
- expect(recovered.outcome).toBe('verified');expect(await readdir(join(work,'locks'))).toHaveLength(0);
+ expect(recovered.outcome).toBe('verified');expect(await readLockOwner(work, scenario.request.target)).toEqual(undefined);
  expect(await readFile(path)).toEqual(bytes);expect(scenario.patches()).toBe(1);
 },30000);
 
@@ -297,7 +297,7 @@ it.each(['missing','another owner'])('rejects completed exposure reconciliation 
  const completed=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
  if(ownership==='another owner')await acquireLock(work,scenario.request.target,randomUUID());
  await expect(executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:completed.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport)).rejects.toMatchObject({code:'NOT_UNCERTAIN'});
- expect(scenario.patches()).toBe(1);expect(await readdir(join(work,'locks'))).toHaveLength(ownership==='missing'?0:1);
+ expect(scenario.patches()).toBe(1);expect(await readLockOwner(work, scenario.request.target)).toEqual(ownership === 'missing' ? undefined : expect.any(String));
 },30000);
 
 it('clears a completed conditional rejection without requiring its unapplied flag state',async()=>{
@@ -312,7 +312,7 @@ it('clears a completed conditional rejection without requiring its unapplied fla
  expect(rejected).toMatchObject({outcome:'blocked',reasonCodes:['FLAG_CONFLICT'],cleanupWarning:{code:'LOCK_CLEANUP_REQUIRED',causeCode:'EACCES'}});
  const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:rejected.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
  expect(recovered.outcome).toBe('blocked');expect(recovered.reasonCodes).toContain('COMPLETED_ATTEMPT_CLEANUP');
- expect(await readdir(join(work,'locks'))).toHaveLength(0);expect(scenario.patches()).toBe(1);
+ expect(await readLockOwner(work, scenario.request.target)).toEqual(undefined);expect(scenario.patches()).toBe(1);
  expect((await loadExposureRecord(recovered.recordPath)).featureProof).toBeNull();
 });
 
@@ -332,11 +332,11 @@ it.each(['hosting scope','flag scope','hosting snapshot','flag snapshot'])('pres
   :phase==='hosting snapshot'?vi.spyOn(scenario.hosting,'snapshot').mockRejectedValue(error)
   :vi.spyOn(scenario.flags,'snapshot').mockRejectedValue(error);
  await expect(executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport)).rejects.toMatchObject({code:'PROVIDER_REJECTED',recoveryCommand:expect.stringContaining(`reconcile-exposure --target staging --attempt ${original.attemptId}`)});
- expect(await readdir(join(work,'locks'))).toHaveLength(1);expect(await readFile(original.recordPath)).toEqual(bytes);
+ expect(await readLockOwner(work, scenario.request.target)).toEqual(expect.any(String));expect(await readFile(original.recordPath)).toEqual(bytes);
  failure.mockRestore();
  const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
  expect(recovered).toMatchObject({outcome:'blocked',reasonCodes:['COMPLETED_ATTEMPT_CLEANUP']});
- expect(await readdir(join(work,'locks'))).toHaveLength(0);expect(scenario.patches()).toBe(1);
+ expect(await readLockOwner(work, scenario.request.target)).toEqual(undefined);expect(scenario.patches()).toBe(1);
  expect(await readFile(original.recordPath)).toEqual(bytes);
 });
 
@@ -350,7 +350,7 @@ it.each(['record','intent'])('rejects exposure %s copied under another attempt U
  }
  const patches=scenario.patches();
  await expect(executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:copied},scenario.hosting,scenario.flags,work,scenario.transport)).rejects.toMatchObject({code:'ATTEMPT_IDENTITY_MISMATCH'});
- expect(scenario.patches()).toBe(patches);expect(await readdir(join(work,'locks'))).toHaveLength(1);
+ expect(scenario.patches()).toBe(patches);expect(await readLockOwner(work, scenario.request.target)).toEqual(expect.any(String));
 });
 
 it('clears a pre-effect flag rejection after hosting drift without issuing eligibility',async()=>{
@@ -370,7 +370,7 @@ it('clears a pre-effect flag rejection after hosting drift without issuing eligi
  expect(recovered).toMatchObject({outcome:'blocked',reasonCodes:['COMPLETED_ATTEMPT_CLEANUP']});
  const record=await loadExposureRecord(recovered.recordPath);
  expect(record.featureProof).toBeNull();expect(()=>createExposureEnvelope(record,scenario.request.operator)).toThrow();
- expect(await readdir(join(work,'locks'))).toHaveLength(0);expect(scenario.patches()).toBe(0);
+ expect(await readLockOwner(work, scenario.request.target)).toEqual(undefined);expect(scenario.patches()).toBe(0);
  expect(await readFile(rejected.recordPath)).toEqual(original);
 });
 
@@ -380,6 +380,6 @@ it('retains an unknown flag effect when the hosting subject drifts',async()=>{
  const bytes=await readFile(original.recordPath),before=await scenario.hosting.snapshot();
  scenario.hosting.snapshot=vi.fn(async()=>({...before,configurationFingerprint:'f'.repeat(64)}));
  await expect(executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport)).rejects.toMatchObject({code:'EXPOSURE_SUBJECT_CHANGED'});
- expect(await readdir(join(work,'locks'))).toHaveLength(1);expect(await readFile(original.recordPath)).toEqual(bytes);
+ expect(await readLockOwner(work, scenario.request.target)).toEqual(expect.any(String));expect(await readFile(original.recordPath)).toEqual(bytes);
  expect(scenario.patches()).toBe(1);
 });

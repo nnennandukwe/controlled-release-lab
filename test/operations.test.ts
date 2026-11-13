@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { execute, type Operation } from '../tools/operations.js';
-import { LabError, loadRecord } from '../tools/evidence.js';
+import { readLockOwner, LabError, loadRecord } from '../tools/evidence.js';
 import type { Hosting, Snapshot, Deployment } from '../tools/railway.js';
 
 // These tests isolate the existing provider transaction and recovery contract.
@@ -278,7 +278,7 @@ it('recovers a completed deployment whose owned lock survived cleanup failure', 
   await expect(execute(request, hosting, directory, traffic)).rejects.toMatchObject({ code: 'OPERATION_LOCKED' });
   const recovered = await execute({ ...request, operation: 'reconcile', attempt: attempt! }, hosting, directory, traffic);
   expect(recovered.outcome).toBe('verified');
-  expect(await readdir(join(directory, 'locks'))).toHaveLength(0);
+  expect(await readLockOwner(directory, target)).toEqual(undefined);
   expect(await readFile(path)).toEqual(bytes);
   expect(hosting.deploy).toHaveBeenCalledOnce();
 });
@@ -291,7 +291,7 @@ it.each(['missing', 'another owner'])('rejects completed deployment reconciliati
   vi.mocked(hosting.assertScope).mockClear();
   await expect(execute({ ...request, operation: 'reconcile', attempt }, hosting, directory, traffic)).rejects.toMatchObject({ code: 'NOT_UNCERTAIN' });
   expect(hosting.assertScope).not.toHaveBeenCalled();
-  expect(await readdir(join(directory, 'locks'))).toHaveLength(ownership === 'missing' ? 0 : 1);
+  expect(await readLockOwner(directory, target)).toEqual(ownership === 'missing' ? undefined : expect.any(String));
 });
 
 it('names the original attempt after a failed reconciliation measurement', async () => {
@@ -302,7 +302,7 @@ it('names the original attempt after a failed reconciliation measurement', async
   expect(failed.outcome).toBe('failed');
   expect(failed.recoveryInstruction).toContain(`--attempt ${original.attemptId}`);
   expect(failed.recoveryInstruction).not.toContain(`--attempt ${failed.attemptId}`);
-  expect(await readdir(join(directory, 'locks'))).toHaveLength(1);
+  expect(await readLockOwner(directory, target)).toEqual(expect.any(String));
   expect((await execute({ ...request, operation: 'reconcile', attempt: original.attemptId! }, hosting, directory, traffic)).outcome).toBe('verified');
   expect(hosting.deploy).toHaveBeenCalledOnce();
 });
@@ -323,7 +323,7 @@ it('clears a completed pre-effect rejection without requiring the rejected deplo
   const recovered = await execute({ ...request, operation: 'reconcile', attempt: rejected.attemptId! }, hosting, directory, traffic);
   expect(recovered.outcome).toBe('blocked');
   expect(recovered.reasonCodes).toContain('COMPLETED_ATTEMPT_CLEANUP');
-  expect(await readdir(join(directory, 'locks'))).toHaveLength(0);
+  expect(await readLockOwner(directory, target)).toEqual(undefined);
   expect(await readFile(rejected.recordPath)).toEqual(bytes);
   expect(hosting.updateImage).not.toHaveBeenCalled();
   expect(hosting.deploy).not.toHaveBeenCalled();
@@ -341,6 +341,6 @@ it('keeps acknowledged rollback uncertainty locked after a blocked reconciliatio
   expect(blocked).toMatchObject({ outcome: 'blocked', reasonCodes: ['CONFIGURATION_MISMATCH'] });
   await expect(execute({ ...request, operation: 'reconcile', attempt: blocked.attemptId! }, hosting, directory, traffic)).rejects.toMatchObject({ code: 'NOT_UNCERTAIN' });
   expect(await readFile(rollback.recordPath)).toEqual(original);
-  expect(await readdir(join(directory, 'locks'))).toHaveLength(1);
+  expect(await readLockOwner(directory, target)).toEqual(expect.any(String));
   expect(hosting.rollback).toHaveBeenCalledOnce();
 });

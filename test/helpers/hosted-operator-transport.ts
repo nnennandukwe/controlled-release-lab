@@ -18,8 +18,11 @@ globalThis.fetch = async (input, options) => {
   const injected = rejectRead && body.query.includes(failurePhase === 'scope' ? 'projectToken' : 'serviceInstance(');
   if (injected) { rejectRead = false; body.query = 'query { controlledReleaseRecoveryFixtureUnknownField }'; }
   const response = await nativeFetch(input, { ...options, redirect: 'error', body: JSON.stringify(body) });
-  const payload: unknown = await response.clone().json();
-  const errorCount = payload && typeof payload === 'object' && 'errors' in payload && Array.isArray(payload.errors) ? payload.errors.length : 0;
+  let errorCount: number | null = null;
+  try {
+    const payload: unknown = await response.clone().json();
+    errorCount = payload && typeof payload === 'object' && 'errors' in payload && Array.isArray(payload.errors) ? payload.errors.length : 0;
+  } catch { /* Keep unreadable payloads unknown; the adapter handles HTTP retries. */ }
   await appendFile(log, `${JSON.stringify({ at: new Date().toISOString(), endpoint: url.href, injected, status: response.status, errorCount })}\n`, { mode: 0o600 });
   return response;
 };

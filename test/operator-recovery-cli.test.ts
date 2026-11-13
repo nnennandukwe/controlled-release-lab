@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { expect, it } from 'vitest';
 import capturedFlag from './fixtures/launchdarkly-off.json' with { type: 'json' };
 import { fixtureResults } from './helpers/feature-fixture.js';
-import { Journal, acquireLock, loadRecord, type EvidenceRecord } from '../tools/evidence.js';
+import { readLockOwner, Journal, acquireLock, loadRecord, type EvidenceRecord } from '../tools/evidence.js';
 import { Railway } from '../tools/railway.js';
 import { syntheticContext } from '../src/flags.js';
 
@@ -77,7 +77,7 @@ it('preserves cancellation during CLI observation and recovers the original reta
     await Promise.race([observing, cancelled.completion.then(result => { throw new Error(`CLI exited before observation: ${result.stderr} ${result.stdout}`); }), new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error('CLI observation startup timed out')), 10000); timer.unref(); })]);
     cancelled.child.kill('SIGTERM');
     expect((await cancelled.completion).signal).toBe('SIGTERM');
-    expect(await readdir(join(root, 'locks'))).toHaveLength(1);
+    expect(await readLockOwner(root, target)).toEqual(expect.any(String));
     const attempts = await readdir(join(root, 'attempts'));
     expect(attempts).toHaveLength(2);
     const interrupted = attempts.find(id => id !== journal.attemptId)!;
@@ -87,7 +87,7 @@ it('preserves cancellation during CLI observation and recovers the original reta
     const result = JSON.parse(completed.stdout);
     expect(result.outcome).toBe('verified');
     expect(await loadRecord(result.recordPath)).toMatchObject({ deploymentId, requestedImage: image, requestedSourceSha: sourceSha, configurationFingerprint: snapshot.configurationFingerprint });
-    expect(await readdir(join(root, 'locks'))).toHaveLength(0);
+    expect(await readLockOwner(root, target)).toEqual(undefined);
     for (const [name, bytes] of original) expect(await readFile(join(journal.directory, name))).toEqual(bytes);
     expect(mutations).toBe(0);
     expect(requests).toBeLessThanOrEqual(1163);

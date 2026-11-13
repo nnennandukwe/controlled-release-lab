@@ -165,3 +165,50 @@ without claiming a new record was saved. Scope checks stay before mutation locks
 and effects. Exposure's corresponding provider/flag preflight reads need the
 same diagnostic behavior after authenticated prior-request validation. The
 hosted check will cover both scope-read and snapshot-read rejection explicitly.
+
+## Concurrent lock cleanup model
+
+Canonical ownership is the nonempty environment lock directory and its single
+owner marker. New journal UUIDs identify acquisitions; an attempt never reacquires
+its released lock. Existing plain-file locks remain readable for recovery.
+Staged directories live under `lock-preparations`, outside the active namespace.
+This protocol targets local macOS/Linux filesystems and process interruption;
+power-loss durability and concurrent use by older operator versions aren't claimed.
+
+| Starting state | Operation / commit point | Visible state | Retry or recovery |
+|---|---|---|---|
+| Missing or empty environment directory | Prepare unique directory, write/sync/close owner marker | Canonical state unchanged | Remove only unpublished preparation on failure |
+| Prepared owner | Rename populated preparation over missing/empty environment path | Exactly one published owner | A nonempty directory or legacy file blocks acquisition |
+| Published owner | Unlink that owner's hashed marker path | Empty directory, environment available | Replacement acquisition can replace empty directory |
+| Legacy owner file | Read matching owner, unlink file | Missing path | Replacement acquisitions always publish a directory; stale unlink can't remove it |
+| Cleanup permission failure | Unlink fails before removal | Original owner remains | Existing warning and read-only reconciliation apply |
+| Process stops before / after publication | No owner / complete owner visible | Unpublished preparation / owned directory | Next process inspects canonical owner; retained journal supplies recovery |
+
+The acquisition commit point is `rename(preparation, environmentPath)`. Release
+commits at `unlink(environmentPath/ownerHash.lock)`; the empty outer directory
+stays available, so no post-commit directory removal can fail. Legacy cleanup
+may only unlink a file. A replacement directory yields EISDIR (or macOS EPERM, verified as a directory) and survives.
+
+Invariants: exactly one owner can publish into an environment; cleanup only
+removes the marker named by its original attempt; a stale release never removes
+a newer UUID; unpublished preparation never blocks another operation; malformed
+owner state is preserved and rejected by the inspector; original journals and
+checksums aren't rewritten. All lock consumers use ownership inspection rather
+than outer-path existence. Release closures and reconciliation share one remover.
+
+| Fault boundary | Injection | Required state / next action | Lifecycle coverage |
+|---|---|---|---|
+| Parent mkdir / preparation mkdtemp | EACCES | Canonical unchanged, report I/O failure | Acquisition fault tests |
+| Marker open / write / sync / close | I/O failure at each call | No published owner; remove owned preparation | Acquisition fault tests and inspector |
+| Rename publication | Existing owner / EACCES | Existing owner preserved; preparation removed | Concurrent acquire and fault tests |
+| Inspector readdir / read / validate | I/O failure or malformed marker | Preserve bytes, reject unreadable owner | Inspector negative tests |
+| Owner marker unlink | EACCES / legacy-file EPERM | Keep active owner and warning | Existing operation/exposure cleanup regressions |
+| Ownership observation to unlink | Another cleanup releases and new UUID acquires | New owner remains locked | Actual filesystem barrier for reconcile, release closure and legacy migration |
+| Unpublished preparation cleanup | rm fails | Inactive preparation retained, explicit path for repair | Cleanup fault test |
+| Before publication / after publication | Stop process | Canonical absent / complete owner | Real subprocess restart and inspector test |
+| Repeated release / acquire | Old UUID releases after next owner publishes | Next owner preserved | Lifecycle test, hosted CLI check |
+
+Six new regressions failed at `4719892`: all three stale-release schedules and
+all three HTML 502/503/504 adapter retries. Hosted transport logging will record
+unreadable payloads with `errorCount: null` and return the provider's original
+response, allowing the production adapter to handle its HTTP status.

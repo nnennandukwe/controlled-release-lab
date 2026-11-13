@@ -263,7 +263,8 @@ jobs:
           LAB_CONFIG_JSON: ${{ vars.LAB_CONFIG_JSON }}
           LAB_RELEASE_DIR: ${{ needs.resolve.outputs.has_request == 'true' && 'work/release/current' || '' }}
       - id: hosted-recovery
-        # The opt-in check shares this job's existing protection and credential scope.
+        # This release-operations rehearsal uses the owner-approved staging role.
+        # The generic Verify workflow receives no provider credentials.
         # It writes only an isolated teaching-fixture journal under work/.
         name: Verify hosted staging operator recovery
         if: inputs.operation == 'doctor' && inputs.target == 'staging' && inputs.rehearse_operator_recovery
