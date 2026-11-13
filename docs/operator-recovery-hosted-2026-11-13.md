@@ -63,3 +63,13 @@ The new protected CI input's execution follows merge. The pre-merge receipt abov
 records the local invocation separately. Original evidence remains available in
 the isolated journal, and the local and hosted checks retain their own revisions
 and observation times.
+
+## Direct request accounting
+
+A later [instrumented receipt](evidence/operator-recovery-2026-11-13-measured.json)
+records source `c21c539469160665bee62dbb1f81311ea41bee9e`, from 14:56:35 to
+14:56:37 Pacific. It records each direct preflight/readback request as well as
+the subprocess requests, so provider retries are counted from execution. The
+check again observed seven provider reads, the induced HTTP 400, unchanged
+provider state and original bytes, and successful blocked owned-lock cleanup.
+The earlier receipt retains its original observations and call-site accounting.
