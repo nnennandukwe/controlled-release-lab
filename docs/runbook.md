@@ -213,7 +213,8 @@ produce a null p95 instead of claiming a complete latency measurement.
 
 If lock removal fails after a result's saved, JSON output keeps `recordPath`,
 `attemptId`, and the measured `outcome`, plus a `cleanupWarning` with code
-`LOCK_CLEANUP_REQUIRED`. The CLI exits 2. Follow that warning's command with the
+`LOCK_CLEANUP_REQUIRED` and the filesystem `causeCode` (for example `EACCES`).
+The CLI exits 2. Follow that warning's command with the
 same work directory; don't repeat the mutation or delete the lock manually.
 
 `reconcile` and `reconcile-exposure` accept a completed attempt only while its
@@ -226,7 +227,9 @@ runtime evidence before clearing the original lock. For a completed unsuccessful
 result, it records provider readback and `COMPLETED_ATTEMPT_CLEANUP`, clears only
 the original owned lock, and stays blocked. That cleanup supplies no release
 eligibility; inspect the earlier failure and resolve fresh authority for recovery.
-Each path saves a new record and preserves the earlier bytes.
+Each path saves a new record and preserves the earlier bytes. Acknowledged native
+rollbacks remain unknown and require verified recovery; a blocked follow-up has a
+new UUID and keeps the original lock.
 
 After a failed deployment reconciliation, the recovery command names the original
 attempt. Keep using that UUID until reconciliation succeeds. Cancellation during

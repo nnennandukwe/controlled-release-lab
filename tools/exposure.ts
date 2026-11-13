@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { acquireLock, assertAttemptIdentity, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, ownsLock, reconciliationCommand, releaseReconciledLock, targetSchema } from './evidence.js';
+import { acquireLock, assertAttemptIdentity, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, lockCleanupWarning, ownsLock, reconciliationCommand, releaseReconciledLock, targetSchema } from './evidence.js';
 import { flagSnapshotSchema, desiredFlagState, flagStateSchema, validateFlagSnapshot, type FlagProvider } from './launchdarkly.js';
 import { predecessor, stageSchema, type ExposureStage } from './launchdarkly.js';
 import { exposurePolicyDigest, rosterDigest, originalQueryBaselines, type QueryBaseline, exposurePolicy } from './exposure-observe.js';
@@ -214,12 +214,12 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
   try {
     record.finishedAt = new Date().toISOString(); recordPath = await saveExposureRecord(journal, record); saved = true;
   } finally { if (release && !saved && !effectAttempted) await release(); }
-  let cleanupWarning: { code: string; recoveryInstruction: string } | undefined;
+  let cleanupWarning: ReturnType<typeof lockCleanupWarning> | undefined;
   try {
     if (prior && (record.outcome === 'verified' || record.outcome === 'blocked' && measuredStableState || record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP'))) await releaseReconciledLock(root, request.target, prior.record.attemptId);
     if (release && (!effectAttempted || record.outcome !== 'unknown_outcome')) await release();
-  } catch {
-    cleanupWarning = { code: 'LOCK_CLEANUP_REQUIRED', recoveryInstruction: `The result's saved at ${recordPath}, but lock cleanup failed. Run ${reconciliationCommand('reconcile-exposure', request.targetName, prior?.record.attemptId ?? journal.attemptId, root)} before another mutation.` };
+  } catch (error) {
+    cleanupWarning = lockCleanupWarning(error, recordPath, reconciliationCommand('reconcile-exposure', request.targetName, prior?.record.attemptId ?? journal.attemptId, root));
   }
   return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, attemptId: journal.attemptId, recordPath, cleanupWarning };
 }

@@ -73,6 +73,12 @@ export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposu
   return `npm run lab -- ${operation} --target ${target} --attempt ${attempt} --work-dir ${quotedRoot}`;
 }
 
+export function lockCleanupWarning(error: unknown, recordPath: string, command: string) {
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+  const causeCode = typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : 'UNKNOWN_IO_ERROR';
+  return { code: 'LOCK_CLEANUP_REQUIRED', causeCode, recoveryInstruction: `The result's saved at ${recordPath}, but lock cleanup failed (${causeCode}). Run ${command} before another mutation.` };
+}
+
 export class Journal {
   private sequence = 0;
   readonly attemptId = randomUUID();

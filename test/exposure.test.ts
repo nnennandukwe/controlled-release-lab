@@ -277,11 +277,11 @@ it('recovers a completed flag change whose owned lock survived cleanup failure',
  const scenario=await fixture(),work=join(scenario.root,'work');
  const unlink=fs.unlink;
  const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
-  if(String(path).endsWith('.lock'))throw new Error('Injected lock cleanup failure');
+  if(String(path).endsWith('.lock'))throw Object.assign(new Error('Injected lock cleanup failure'), { code: 'EACCES' });
   return unlink(path);
  });
  const completed=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
- expect(completed).toMatchObject({outcome:'verified',cleanupWarning:{code:'LOCK_CLEANUP_REQUIRED'}});
+ expect(completed).toMatchObject({outcome:'verified',cleanupWarning:{code:'LOCK_CLEANUP_REQUIRED',causeCode:'EACCES'}});
  expect(completed.cleanupWarning?.recoveryInstruction).toContain(completed.attemptId!);
  cleanup.mockRestore();
  const [attempt]=await readdir(join(work,'exposure/attempts'));
@@ -304,12 +304,12 @@ it('clears a completed conditional rejection without requiring its unapplied fla
  const scenario=await fixture({conflict:true}),work=join(scenario.root,'work');
  const unlink=fs.unlink;
  const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
-  if(String(path).endsWith('.lock'))throw new Error('Injected lock cleanup failure');
+  if(String(path).endsWith('.lock'))throw Object.assign(new Error('Injected lock cleanup failure'), { code: 'EACCES' });
   return unlink(path);
  });
  const rejected=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
  cleanup.mockRestore();
- expect(rejected).toMatchObject({outcome:'blocked',reasonCodes:['FLAG_CONFLICT'],cleanupWarning:{code:'LOCK_CLEANUP_REQUIRED'}});
+ expect(rejected).toMatchObject({outcome:'blocked',reasonCodes:['FLAG_CONFLICT'],cleanupWarning:{code:'LOCK_CLEANUP_REQUIRED',causeCode:'EACCES'}});
  const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:rejected.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
  expect(recovered.outcome).toBe('blocked');expect(recovered.reasonCodes).toContain('COMPLETED_ATTEMPT_CLEANUP');
  expect(await readdir(join(work,'locks'))).toHaveLength(0);expect(scenario.patches()).toBe(1);

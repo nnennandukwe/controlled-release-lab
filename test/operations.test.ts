@@ -263,11 +263,11 @@ it('recovers a completed deployment whose owned lock survived cleanup failure', 
   const directory = await root(), hosting = host();
   const unlink = fs.unlink;
   const cleanup = vi.spyOn(fs, 'unlink').mockImplementation(async path => {
-    if (String(path).endsWith('.lock')) throw new Error('Injected lock cleanup failure');
+    if (String(path).endsWith('.lock')) throw Object.assign(new Error('Injected lock cleanup failure'), { code: 'EACCES' });
     return unlink(path);
   });
   const completed = await execute(request, hosting, directory, traffic);
-  expect(completed).toMatchObject({ outcome: 'verified', cleanupWarning: { code: 'LOCK_CLEANUP_REQUIRED' } });
+  expect(completed).toMatchObject({ outcome: 'verified', cleanupWarning: { code: 'LOCK_CLEANUP_REQUIRED', causeCode: 'EACCES' } });
   expect(completed.cleanupWarning?.recoveryInstruction).toContain(completed.attemptId!);
   cleanup.mockRestore();
   const [attempt] = await readdir(join(directory, 'attempts'));
@@ -311,12 +311,12 @@ it('clears a completed pre-effect rejection without requiring the rejected deplo
   hosting.snapshot = vi.fn(async () => ({ ...await snapshot(), configurationFingerprint: 'unapproved-config' }));
   const unlink = fs.unlink;
   const cleanup = vi.spyOn(fs, 'unlink').mockImplementation(async path => {
-    if (String(path).endsWith('.lock')) throw new Error('Injected lock cleanup failure');
+    if (String(path).endsWith('.lock')) throw Object.assign(new Error('Injected lock cleanup failure'), { code: 'EACCES' });
     return unlink(path);
   });
   const rejected = await execute(request, hosting, directory, traffic);
   cleanup.mockRestore();
-  expect(rejected).toMatchObject({ outcome: 'blocked', reasonCodes: ['RELEASE_SUBJECT_MISMATCH'], cleanupWarning: { code: 'LOCK_CLEANUP_REQUIRED' } });
+  expect(rejected).toMatchObject({ outcome: 'blocked', reasonCodes: ['RELEASE_SUBJECT_MISMATCH'], cleanupWarning: { code: 'LOCK_CLEANUP_REQUIRED', causeCode: 'EACCES' } });
   const bytes = await readFile(rejected.recordPath);
   const recovered = await execute({ ...request, operation: 'reconcile', attempt: rejected.attemptId! }, hosting, directory, traffic);
   expect(recovered.outcome).toBe('blocked');
@@ -325,4 +325,20 @@ it('clears a completed pre-effect rejection without requiring the rejected deplo
   expect(await readFile(rejected.recordPath)).toEqual(bytes);
   expect(hosting.updateImage).not.toHaveBeenCalled();
   expect(hosting.deploy).not.toHaveBeenCalled();
+});
+
+it('keeps acknowledged rollback uncertainty locked after a blocked reconciliation', async () => {
+  const directory = await root(), baseline = await execute(request, host(), directory, traffic), hosting = host();
+  await hosting.updateImage(image); await hosting.deploy();
+  const rollback = await execute({ ...request, operation: 'rollback', deploymentId, restoreRecord: baseline.recordPath }, hosting, directory, traffic);
+  expect(rollback).toMatchObject({ outcome: 'unknown_outcome', reasonCodes: ['ROLLBACK_REQUIRES_RECONCILIATION'] });
+  const original = await readFile(rollback.recordPath);
+  const snapshot = hosting.snapshot;
+  hosting.snapshot = vi.fn(async () => ({ ...await snapshot(), configurationFingerprint: 'drifted-config' }));
+  const blocked = await execute({ ...request, operation: 'reconcile', attempt: rollback.attemptId! }, hosting, directory, traffic);
+  expect(blocked).toMatchObject({ outcome: 'blocked', reasonCodes: ['CONFIGURATION_MISMATCH'] });
+  await expect(execute({ ...request, operation: 'reconcile', attempt: blocked.attemptId! }, hosting, directory, traffic)).rejects.toMatchObject({ code: 'NOT_UNCERTAIN' });
+  expect(await readFile(rollback.recordPath)).toEqual(original);
+  expect(await readdir(join(directory, 'locks'))).toHaveLength(1);
+  expect(hosting.rollback).toHaveBeenCalledOnce();
 });
