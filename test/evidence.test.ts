@@ -137,3 +137,14 @@ it('preserves a legacy-file permission failure rather than treating it as a repl
   await expect(releaseReconciledLock(directory, target, 'first')).rejects.toBe(denied);
   expect(await fs.readFile(path, 'utf8')).toBe('first');
 });
+
+it('preserves a retained legacy owner when another acquisition is refused', async () => {
+  const directory = await root(), path = join(directory, 'locks', `${fingerprint([target.projectId, target.serviceId, target.environmentId])}.lock`);
+  await mkdir(join(directory, 'locks')); await writeFile(path, 'retained-owner');
+  await expect(acquireLock(directory, target, 'new-owner')).rejects.toMatchObject({ code: 'OPERATION_LOCKED' });
+  expect(await fs.readFile(path, 'utf8')).toBe('retained-owner');
+  expect(await ownsLock(directory, target, 'retained-owner')).toBe(true);
+  await releaseReconciledLock(directory, target, 'retained-owner');
+  await acquireLock(directory, target, 'new-owner');
+  expect(await ownsLock(directory, target, 'new-owner')).toBe(true);
+});

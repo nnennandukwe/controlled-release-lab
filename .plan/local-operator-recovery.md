@@ -212,3 +212,22 @@ Six new regressions failed at `4719892`: all three stale-release schedules and
 all three HTML 502/503/504 adapter retries. Hosted transport logging will record
 unreadable payloads with `errorCount: null` and return the provider's original
 response, allowing the production adapter to handle its HTTP status.
+
+### Lock proof receipt
+
+Source `8045d17` publishes ownership at populated-directory rename and releases
+at owner-marker unlink. The inspector, release closure, reconciliation and both
+rehearsals now share that protocol. Three stale-cleanup schedules, marker
+validation, each staged-file operation's injected failure, failed preparation
+cleanup, legacy-file permission refusal and two real subprocess interruption
+boundaries passed. The additional legacy acquisition/refusal/migration test also
+passed without changing executable behavior. Focused lock/gateway checks passed
+37 cases; the final legacy suite passed 21. Typecheck and build passed.
+
+Both actual hosted CLI phases passed at `8045d17` with thirteen measured reads,
+zero provider mutation attempts and unchanged staging subject and original bytes.
+Public receipts are producer output copied unchanged, with source, subject,
+execution times and measured hashes. Exact-head external review and protected
+post-merge execution remain gates. The full local suite's result is recorded in
+the review/report receipt. Directory fsync and storage power loss aren't covered;
+operators must consistently use the upgraded binary for the retained work root.

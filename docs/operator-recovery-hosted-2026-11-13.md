@@ -145,3 +145,12 @@ The hosted preload also used to parse every HTTP response as JSON before the
 Railway adapter could inspect it. HTML 502/503/504 responses reproduced aborted
 retries. The logger now records their unknown error count as null and returns
 the original response to the adapter's bounded retry path.
+
+The updated check passed from operator source
+`8045d171c5561121b9c37934498904742bb4bf35` at 15:55:48–15:55:51 Pacific.
+The producer's [snapshot receipt](evidence/operator-recovery-2026-11-13-lock-snapshot.json)
+and [scope receipt](evidence/operator-recovery-2026-11-13-lock-scope.json) are copied
+byte-for-byte from their emitted files. They record seven and six provider reads,
+respectively, with zero mutation attempts, unchanged provider state and original
+record/checksum bytes, retained ownership after the error and successful blocked
+cleanup through the emitted CLI retry command.
