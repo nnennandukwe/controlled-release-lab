@@ -267,7 +267,9 @@ jobs:
         # It writes only an isolated teaching-fixture journal under work/.
         name: Verify hosted staging operator recovery
         if: inputs.operation == 'doctor' && inputs.target == 'staging' && inputs.rehearse_operator_recovery
-        run: node --import tsx tools/hosted-operator-recovery.ts
+        run: |
+          node --import tsx tools/hosted-operator-recovery.ts
+          LAB_HOSTED_RECOVERY_FAILURE_PHASE=scope node --import tsx tools/hosted-operator-recovery.ts
         env:
           LAB_HOSTED_RECOVERY_CHECK: 'true'
           RAILWAY_PROJECT_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}

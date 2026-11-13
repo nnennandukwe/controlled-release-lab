@@ -43,6 +43,12 @@ it('rejects an unprotected CI ref before provider access', async () => {
   expect(transport).not.toHaveBeenCalled();
 });
 
+it('rejects an unknown hosted failure phase before any request', async () => {
+  const transport = vi.spyOn(globalThis, 'fetch');
+  await expect(hostedOperatorRecovery({ LAB_HOSTED_RECOVERY_CHECK: 'true', LAB_TARGET: 'staging', LAB_HOSTED_RECOVERY_FAILURE_PHASE: 'unknown' })).rejects.toMatchObject({ code: 'HOSTED_CHECK_PHASE_INVALID' });
+  expect(transport).not.toHaveBeenCalled();
+});
+
 it.each([
   ['doctor', 'live'], ['reconcile', 'staging'], ['expose', 'staging'],
 ])('rejects the hosted-check workflow input for %s/%s before resolution', async (operation, target) => {

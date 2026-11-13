@@ -156,3 +156,12 @@ Timeout or cancellation must stop the shell/npm/CLI process group, including a
 descendant that holds output pipes after its parent exits. The new checks will
 use the actual adapter retry path and real disposable process trees; retained
 journals remain the recovery source when a command stops.
+
+Hosted review at `8c0dece` identified a remaining preflight boundary: scope reads
+run before the journal catch. After prior identity/ownership validation, a failed
+read must preserve its reason and provide the original-owner recovery command,
+including the custom config path. It must retain the lock and earlier bytes
+without claiming a new record was saved. Scope checks stay before mutation locks
+and effects. Exposure's corresponding provider/flag preflight reads need the
+same diagnostic behavior after authenticated prior-request validation. The
+hosted check will cover both scope-read and snapshot-read rejection explicitly.

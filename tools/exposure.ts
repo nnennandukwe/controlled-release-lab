@@ -1,15 +1,15 @@
 import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { acquireLock, assertAttemptIdentity, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, lockCleanupWarning, ownsLock, reconciliationCommand, releaseReconciledLock, targetSchema } from './evidence.js';
-import { flagSnapshotSchema, desiredFlagState, flagStateSchema, validateFlagSnapshot, type FlagProvider } from './launchdarkly.js';
+import { acquireLock, assertAttemptIdentity, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, lockCleanupWarning, ownsLock, reconciliationCommand, reconciliationPreflightError, releaseReconciledLock, targetSchema } from './evidence.js';
+import { flagSnapshotSchema, desiredFlagState, flagStateSchema, validateFlagSnapshot, type FlagProvider, type FlagSnapshot } from './launchdarkly.js';
 import { predecessor, stageSchema, type ExposureStage } from './launchdarkly.js';
 import { exposurePolicyDigest, rosterDigest, originalQueryBaselines, type QueryBaseline, exposurePolicy } from './exposure-observe.js';
 import { featureProofSchema, legacyFeatureProofSchema, assertServing, checkFeatureProof, measureFeatureProof, type FeatureSubject } from './feature-proof.js';
 import { boundedFile, preserveFile, policy, policyDigest, producerSchema, protectedRun, assertProducer, controlledDeploymentEvidenceSchema } from './promotion.js';
 import { verifyArtifact, repository } from './attestation.js';
 import { sha256 } from './setup-verifier.js';
-import type { Hosting } from './railway.js';
+import type { Hosting, Snapshot } from './railway.js';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const attachments = ['image.bundle.jsonl', 'deployment-evidence.json', 'deployment.bundle.jsonl', 'prior-exposure.json', 'prior.bundle.jsonl'] as const;
@@ -163,11 +163,17 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
   if (request.targetName !== input.targetName || (!prior && request.operation !== input.operation) || (input.operation === 'expose' && request.stage !== input.stage)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'Command and resolved exposure request disagree.');
   if (!prior && (request.purpose === 'response-loss-rehearsal') !== (input.rehearseResponseLoss === true)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'The approved request and command must agree on the response-loss rehearsal.');
   if (prior && (verified.requestDigest !== prior.record.requestDigest || fingerprint(request) !== fingerprint(prior.record.request))) throw new LabError('EXPOSURE_RECORD_CHANGED', 'The prior intent and retained request disagree.');
-  await hosting.assertScope(request.target); await flags.assertScope();
   const subject = exposureSubject(request);
-  const beforeProvider = await hosting.snapshot();
-  if (!terminalCleanup) assertServing(beforeProvider, subject);
-  const before = await flags.snapshot();
+  let beforeProvider: Snapshot, before: FlagSnapshot;
+  try {
+    await hosting.assertScope(request.target); await flags.assertScope();
+    beforeProvider = await hosting.snapshot();
+    if (!terminalCleanup) assertServing(beforeProvider, subject);
+    before = await flags.snapshot();
+  } catch (error) {
+    if (!prior) throw error;
+    throw reconciliationPreflightError(error, reconciliationCommand('reconcile-exposure', input.targetName, prior.record.attemptId, root));
+  }
   if (!prior && before.digest !== request.before.digest) throw new LabError('FLAG_STATE_CHANGED', 'The flag changed since request resolution. No PATCH was sent.');
   if (mutating && !input.apply) return { outcome: 'preview', attemptId: undefined, recoveryInstruction: undefined, cleanupWarning: undefined, reasonCodes: ['APPLY_REQUIRED'], target: request.targetName, stage: request.stage, requestDigest: verified.requestDigest, recordPath: '' };
   // Authenticate the actual protected job before obtaining a mutation lock.

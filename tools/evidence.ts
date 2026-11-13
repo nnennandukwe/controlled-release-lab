@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 export class LabError extends Error {
-  constructor(public code: string, message: string, public outcome: 'failed' | 'blocked' | 'unknown_outcome' = 'blocked') { super(message); }
+  recoveryCommand?: string;
+  constructor(public code: string, message: string, public outcome: 'failed' | 'blocked' | 'unknown_outcome' = 'blocked', options?: ErrorOptions) { super(message, options); }
 }
 export const imageSchema = z.string().regex(/^ghcr\.io\/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$/, 'Use a GHCR image qualified by sha256 digest.');
 export const changeReferenceSchema = z.string().trim().min(3).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:/#-]*$/, 'Use a change identifier or URL without spaces or query parameters.');
@@ -71,6 +72,12 @@ export async function ownsLock(root: string, target: Target, attemptId: string) 
 export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposure', target: 'staging' | 'live', attempt: string, root: string, configPath?: string) {
   const quote = (path: string) => `'${path.replaceAll("'", "'\\''")}'`;
   return `npm run lab -- ${operation} --target ${target} --attempt ${attempt} --work-dir ${quote(root)}${configPath === undefined ? '' : ` --config ${quote(configPath)}`}`;
+}
+
+export function reconciliationPreflightError(error: unknown, command: string) {
+  const failure = error instanceof LabError ? error : new LabError('RECONCILIATION_PREFLIGHT_FAILED', 'Read-only provider preflight failed. Resolve provider access or state before retrying.', 'blocked', { cause: error });
+  failure.recoveryCommand = command;
+  return failure;
 }
 
 export function lockCleanupWarning(error: unknown, recordPath: string, command: string) {

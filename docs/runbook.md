@@ -214,8 +214,9 @@ produce a null p95 instead of claiming a complete latency measurement.
 To check this recovery path against the existing Railway staging environment,
 dispatch **Operate lab** on main with `operation=doctor`, `target=staging`, and
 `rehearse_operator_recovery=true`. Inspect and approve the normal staging job.
-The opt-in check sends one deliberately invalid read-only GraphQL request to
-Railway, preserves an isolated teaching-fixture record and its owned lock, then
+The opt-in check covers scope-read and snapshot-read rejection separately. Each
+sends one deliberately invalid read-only GraphQL request to Railway, preserves
+an isolated teaching-fixture record and its owned lock, then
 executes the emitted CLI recovery command against real provider readback. It
 requires unchanged original bytes, blocked cleanup evidence, a released owned
 lock and unchanged provider state. The job retains its receipt and failed
@@ -254,7 +255,9 @@ rollbacks remain unknown and require verified recovery; a blocked follow-up has 
 new UUID and keeps the original lock.
 
 After a failed deployment reconciliation, the recovery command names the original
-attempt, including a read failure before completed-attempt cleanup. If the CLI
+attempt, including scope verification before journaling and later snapshot
+failure. Exposure preflight failures also name the original owner. A scope
+failure retains earlier state without claiming a new record was saved. If the CLI
 was started with `--config`, the hint includes that file's absolute path and
 quotes it for the shell. Keep using that UUID and target map until reconciliation
 succeeds. Cancellation during

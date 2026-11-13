@@ -8,12 +8,13 @@ import { requireProtectedEnvironment } from './workflow-guard.js';
 import policy from '../config/release-policy.json' with { type: 'json' };
 
 export type HostedReadEvent = { injected?: boolean; status?: number; errorCount?: number; mutationRejected?: boolean };
-export function checkHostedReadEvents(events: HostedReadEvent[]) {
+export function checkHostedReadEvents(events: HostedReadEvent[], failurePhase: 'scope' | 'snapshot' = 'snapshot') {
   const rejected = events.filter(event => event.injected);
   const ordinary = events.filter(event => !event.injected);
   const successful = ordinary.filter(event => event.status! >= 200 && event.status! < 300 && !event.errorCount);
   const retried = ordinary.filter(event => [429, 502, 503, 504].includes(event.status!));
-  if (events.some(event => event.mutationRejected) || events.length > 10 || rejected.length !== 1 || !(rejected[0]!.errorCount || rejected[0]!.status! >= 400) || successful.length !== 3 || successful.length + retried.length !== ordinary.length) throw new LabError('HOSTED_CHECK_FAILED', 'Expected one provider rejection, three successful reads and only bounded supported read retries without mutation attempts.');
+  const requiredReads = failurePhase === 'scope' ? 2 : 3;
+  if (events.some(event => event.mutationRejected) || events.length > requiredReads * 3 + 1 || rejected.length !== 1 || !(rejected[0]!.errorCount || rejected[0]!.status! >= 400) || successful.length !== requiredReads || successful.length + retried.length !== ordinary.length) throw new LabError('HOSTED_CHECK_FAILED', 'Expected one provider rejection, successful scope/readback checks and only bounded supported read retries without mutation attempts.');
 }
 
 export async function runHostedCommand(command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs?: number }) {
@@ -41,6 +42,8 @@ export async function runHostedCommand(command: string, args: string[], options:
 
 export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = process.env) {
   if (environment.LAB_HOSTED_RECOVERY_CHECK !== 'true' || environment.LAB_TARGET !== 'staging') throw new LabError('HOSTED_STAGING_OPT_IN_REQUIRED', 'Enable the hosted check explicitly for staging.');
+  const failurePhase = environment.LAB_HOSTED_RECOVERY_FAILURE_PHASE ?? 'snapshot';
+  if (failurePhase !== 'scope' && failurePhase !== 'snapshot') throw new LabError('HOSTED_CHECK_PHASE_INVALID', 'Choose scope or snapshot for the hosted read failure.');
   if (environment.GITHUB_ACTIONS === 'true') await requireProtectedEnvironment({ ...environment, LAB_GITHUB_ENVIRONMENT: 'staging' });
   const repository = fileURLToPath(new URL('../', import.meta.url));
   const operatorSourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim();
@@ -70,29 +73,32 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
   const run = async (command: string, args: string[], rejectRead: boolean) => {
     const { code, stdout, stderr, timedOut } = await runHostedCommand(command, args, { cwd: repository, env: {
       PATH: environment.PATH, RAILWAY_PROJECT_TOKEN: environment.RAILWAY_PROJECT_TOKEN, LD_READ_TOKEN: 'unused-in-terminal-cleanup',
-      NODE_OPTIONS: `--import tsx --import ${JSON.stringify(preload)}`, LAB_HOSTED_RECOVERY_CHECK: 'true', LAB_HOSTED_RECOVERY_LOG: log, LAB_HOSTED_REJECT_READ: String(rejectRead),
+      NODE_OPTIONS: `--import tsx --import ${JSON.stringify(preload)}`, LAB_HOSTED_RECOVERY_CHECK: 'true', LAB_HOSTED_RECOVERY_LOG: log, LAB_HOSTED_REJECT_READ: String(rejectRead), LAB_HOSTED_RECOVERY_FAILURE_PHASE: failurePhase,
     } });
     const name = rejectRead ? 'failed-read' : 'recovered-read';
     await writeFile(join(directory, `${name}.stdout`), stdout, { flag: 'wx', mode: 0o600 });
     await writeFile(join(directory, `${name}.stderr`), stderr, { flag: 'wx', mode: 0o600 });
     if (timedOut) throw new LabError('HOSTED_CHECK_TIMEOUT', `The ${name} command timed out; inspect its retained output and owned journal.`);
     if (code !== 2) throw new LabError('HOSTED_CHECK_FAILED', `Expected blocked exit 2 from ${name}; inspect its retained output.`);
-    return JSON.parse(stdout.trim().split('\n').at(-1)!) as { outcome: string; reasonCodes: string[]; recoveryInstruction: string; recordPath: string };
+    return JSON.parse(stdout.trim().split('\n').at(-1)!) as { outcome: string; reasonCodes: string[]; recoveryInstruction: string; recordPath?: string };
   };
   const failed = await run(process.execPath, ['--import', 'tsx', 'tools/lab.ts', 'reconcile', '--target', 'staging', '--attempt', journal.attemptId, '--config', config, '--work-dir', root], true);
   const lock = join(root, 'locks', `${fingerprint([target.projectId, target.serviceId, target.environmentId])}.lock`);
   const command = failed.recoveryInstruction.match(/ Run (npm run lab -- .+)\.$/)?.[1];
   if (failed.outcome !== 'blocked' || !failed.reasonCodes.some(code => ['PROVIDER_HTTP', 'PROVIDER_REJECTED'].includes(code)) || !command?.includes(`--attempt ${journal.attemptId}`) || !command.includes('--config ') || await readFile(lock, 'utf8') !== journal.attemptId) throw new LabError('HOSTED_CHECK_FAILED', 'The real provider rejection did not preserve the original owner and retry command.');
-  await loadRecord(failed.recordPath);
+  if (failurePhase === 'snapshot') {
+    if (!failed.recordPath) throw new LabError('HOSTED_CHECK_FAILED', 'The failed snapshot read did not save its record.');
+    await loadRecord(failed.recordPath);
+  } else if (failed.recordPath) throw new LabError('HOSTED_CHECK_FAILED', 'A rejected scope read must not claim a new saved record.');
   const recovered = await run('/bin/sh', ['-c', command], false);
-  if (recovered.outcome !== 'blocked' || recovered.reasonCodes.join() !== 'COMPLETED_ATTEMPT_CLEANUP' || (await readdir(join(root, 'locks'))).length !== 0) throw new LabError('HOSTED_CHECK_FAILED', 'Read-only retry did not complete blocked owned-lock cleanup.');
+  if (recovered.outcome !== 'blocked' || recovered.reasonCodes.join() !== 'COMPLETED_ATTEMPT_CLEANUP' || !recovered.recordPath || (await readdir(join(root, 'locks'))).length !== 0) throw new LabError('HOSTED_CHECK_FAILED', 'Read-only retry did not complete blocked owned-lock cleanup.');
   await loadRecord(recovered.recordPath);
   for (const [path, bytes] of retained) if (!bytes.equals(await readFile(path))) throw new LabError('HOSTED_CHECK_FAILED', 'Original recovery evidence changed.');
   const events = (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as HostedReadEvent);
-  checkHostedReadEvents(events);
+  checkHostedReadEvents(events, failurePhase);
   const after = await hosting.snapshot();
   if (fingerprint(before) !== fingerprint(after)) throw new LabError('HOSTED_CHECK_FAILED', 'Provider subject changed during the read-only recovery check.');
-  const receipt = { schemaVersion: 1, outcome: 'hosted_cleanup_verified', authorized: false, operatorSourceSha, startedAt, finishedAt: new Date().toISOString(), targetName: 'staging', target, before, after, fixture: { syntheticTerminalRecord: true, simulatedFailure: 'one invalid read-only GraphQL field sent to the actual Railway endpoint' }, originalAttemptId: journal.attemptId, originalRecordUnchanged: true, lockRetainedAfterFailure: true, lockReleased: true, providerMutations: 0, providerRequests: events.length + directProviderReads.length, directProviderReads, failedRecordPath: failed.recordPath, recoveredRecordPath: recovered.recordPath, events, directory };
+  const receipt = { schemaVersion: 1, outcome: 'hosted_cleanup_verified', authorized: false, operatorSourceSha, failurePhase, startedAt, finishedAt: new Date().toISOString(), targetName: 'staging', target, before, after, fixture: { syntheticTerminalRecord: true, simulatedFailure: 'one invalid read-only GraphQL field sent to the actual Railway endpoint' }, originalAttemptId: journal.attemptId, originalRecordUnchanged: true, lockRetainedAfterFailure: true, lockReleased: true, providerMutations: 0, providerRequests: events.length + directProviderReads.length, directProviderReads, failedOutcome: failed.outcome, failedReasonCodes: failed.reasonCodes, failedRecordPath: failed.recordPath ?? null, recoveredRecordPath: recovered.recordPath, events, directory };
   await writeFile(join(directory, 'receipt.json'), `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
   return receipt;
 }

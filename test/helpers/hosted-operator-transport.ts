@@ -6,6 +6,7 @@ const log = process.env.LAB_HOSTED_RECOVERY_LOG;
 if (!log || process.env.LAB_HOSTED_RECOVERY_CHECK !== 'true') throw new Error('Explicit hosted staging check required.');
 const nativeFetch = globalThis.fetch;
 let rejectRead = process.env.LAB_HOSTED_REJECT_READ === 'true';
+const failurePhase = process.env.LAB_HOSTED_RECOVERY_FAILURE_PHASE ?? 'snapshot';
 globalThis.fetch = async (input, options) => {
   const url = new URL(String(input));
   if (url.href !== 'https://backboard.railway.com/graphql/v2') throw new Error('Hosted check permits only Railway GraphQL reads.');
@@ -14,7 +15,7 @@ globalThis.fetch = async (input, options) => {
     await appendFile(log, `${JSON.stringify({ mutationRejected: true })}\n`, { mode: 0o600 });
     throw new Error('Provider mutation rejected by hosted check.');
   }
-  const injected = rejectRead && body.query.includes('serviceInstance(');
+  const injected = rejectRead && body.query.includes(failurePhase === 'scope' ? 'projectToken' : 'serviceInstance(');
   if (injected) { rejectRead = false; body.query = 'query { controlledReleaseRecoveryFixtureUnknownField }'; }
   const response = await nativeFetch(input, { ...options, redirect: 'error', body: JSON.stringify(body) });
   const payload: unknown = await response.clone().json();

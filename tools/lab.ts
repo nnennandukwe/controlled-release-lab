@@ -166,7 +166,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     return result.cleanupWarning ? 2 : result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
   } catch (error) {
     const message = error instanceof z.ZodError ? error.issues.map(issue => `${issue.path.join('.') || 'argument'}: ${issue.message}`).join('; ') : error instanceof SyntaxError ? 'Configuration is not valid JSON.' : error instanceof LabError ? error.message : 'Command could not complete. Check configuration, file paths, and evidence permissions.';
-    stdout(`${JSON.stringify({ outcome: error instanceof LabError ? error.outcome : 'failed', reasonCodes: [error instanceof LabError ? error.code : 'INVALID_INPUT_OR_IO'], recoveryInstruction: `${message} Run npm run lab -- --help.` })}\n`);
+    stdout(`${JSON.stringify({ outcome: error instanceof LabError ? error.outcome : 'failed', reasonCodes: [error instanceof LabError ? error.code : 'INVALID_INPUT_OR_IO'], recoveryInstruction: `${message} Run ${error instanceof LabError && error.recoveryCommand ? error.recoveryCommand : 'npm run lab -- --help'}.` })}\n`);
     return error instanceof LabError && error.outcome !== 'failed' ? 2 : 1;
   } finally { if (heartbeat) clearInterval(heartbeat); }
 }

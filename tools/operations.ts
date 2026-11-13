@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { measureFeatureProof, checkFeatureProof } from './feature-proof.js';
 import type { FlagProvider } from './launchdarkly.js';
 import type { Hosting, Snapshot } from './railway.js';
-import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, loadAttempt, loadRecord, lockCleanupWarning, ownsLock, reconciliationCommand, releaseReconciledLock, targetSchema, type EvidenceRecord, type Target } from './evidence.js';
+import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, loadAttempt, loadRecord, lockCleanupWarning, ownsLock, reconciliationCommand, reconciliationPreflightError, releaseReconciledLock, targetSchema, type EvidenceRecord, type Target } from './evidence.js';
 import { observe, observationOptionsSchema } from './observe.js';
 import { authorizeMutation } from './promotion.js';
 export type Operation = { purpose?: 'release' | 'recovery-rehearsal'; operation: 'deploy' | 'rollback' | 'observe' | 'reconcile'; targetName: 'staging' | 'live'; target: Target; configPath?: string; releaseDir?: string; changeReference?: string; image?: string; sourceSha?: string; deploymentId?: string; restoreRecord?: string; attempt?: string; apply?: boolean; durationSeconds?: number; maxDurationSeconds?: number; rate?: number; maxRequests?: number };
@@ -33,7 +33,11 @@ export async function execute(request: Operation, hosting: Hosting, root: string
   // A rollback acknowledgement stays unknown. A blocked follow-up has a new
   // UUID and can't own the original mutation lock.
   const terminalCleanup = request.operation === 'reconcile' && prior!.outcome !== 'unknown_outcome' && prior!.outcome !== 'verified';
-  await hosting.assertScope();
+  try { await hosting.assertScope(); }
+  catch (error) {
+    if (request.operation !== 'reconcile') throw error;
+    throw reconciliationPreflightError(error, reconciliationCommand('reconcile', request.targetName, request.attempt!, root, request.configPath));
+  }
   if (mutating && !request.apply) {
     await hosting.snapshot();
     return { outcome: 'preview', attemptId: undefined, recoveryInstruction: undefined, cleanupWarning: undefined, reasonCodes: ['APPLY_REQUIRED'], recordPath: '', image: request.image ?? prior?.requestedImage, target: request.targetName, changeReference };

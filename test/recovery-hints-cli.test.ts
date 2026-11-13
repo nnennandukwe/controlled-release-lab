@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { expect, it } from 'vitest';
 import { acquireLock, Journal, loadRecord, type EvidenceRecord } from '../tools/evidence.js';
 
-it.each(['blocked', 'verified'] as const)('retries a failed %s-owner read using the emitted CLI command and custom config', async outcome => {
+it.each([['blocked', 'snapshot'], ['verified', 'snapshot'], ['blocked', 'scope'], ['verified', 'scope']] as const)('retries a failed %s-owner %s read using the emitted CLI command and custom config', async (outcome, phase) => {
   const temporary = await mkdtemp(join(tmpdir(), 'operator-hints-'));
   const root = join(temporary, "operator's retained work"), config = join(temporary, "operator's target map.json");
   const target = { projectId: randomUUID(), serviceId: randomUUID(), environmentId: randomUUID(), url: 'https://operator-fixture.invalid' };
@@ -26,10 +26,13 @@ it.each(['blocked', 'verified'] as const)('retries a failed %s-owner read using 
     let body = ''; for await (const chunk of request) body += chunk;
     const query = (JSON.parse(body) as { query: string }).query;
     if (query.startsWith('mutation')) { mutations++; response.statusCode = 400; json({ error: 'No writes in read-only recovery' }); return; }
-    if (query.includes('projectToken')) { json({ data: { projectToken: target } }); return; }
+    if (query.includes('projectToken')) {
+      if (rejectSnapshot && phase === 'scope') { response.statusCode = 400; json({ error: 'Synthetic scope-read rejection' }); return; }
+      json({ data: { projectToken: target } }); return;
+    }
     if (query.includes('serviceInstance(')) {
       snapshots++;
-      if (rejectSnapshot) { response.statusCode = 400; json({ error: 'Synthetic snapshot rejection' }); return; }
+      if (rejectSnapshot && phase === 'snapshot') { response.statusCode = 400; json({ error: 'Synthetic snapshot rejection' }); return; }
       json({ data: { serviceInstance: { source: null, latestDeployment: null, activeDeployments: [], healthcheckPath: '/readyz', startCommand: null, numReplicas: 1, region: 'synthetic-local' }, variables: { LAB_ENVIRONMENT: 'staging', PORT: '3000', NODE_ENV: 'production' } } });
       return;
     }
@@ -52,7 +55,8 @@ it.each(['blocked', 'verified'] as const)('retries a failed %s-owner read using 
     expect(failed.code, failed.stderr + failed.stdout).toBe(2);
     const result = output(failed.stdout);
     expect(result.reasonCodes).toEqual(['PROVIDER_HTTP']);
-    expect(await loadRecord(result.recordPath)).toMatchObject({ outcome: 'blocked', target });
+    if (phase === 'snapshot') expect(await loadRecord(result.recordPath)).toMatchObject({ outcome: 'blocked', target });
+    else expect(result.recordPath).toBeUndefined();
     expect(await readdir(join(root, 'locks'))).toHaveLength(1);
     const command = (result.recoveryInstruction as string).match(/ Run (npm run lab -- .+)\.$/)?.[1];
     expect(command, result.recoveryInstruction).toBeDefined();
@@ -63,11 +67,12 @@ it.each(['blocked', 'verified'] as const)('retries a failed %s-owner read using 
     expect(retried.code, retried.stderr + retried.stdout).toBe(2);
     const retryResult = output(retried.stdout);
     expect(retryResult.reasonCodes).toEqual([outcome === 'blocked' ? 'COMPLETED_ATTEMPT_CLEANUP' : 'PROVIDER_HTTP']);
-    expect(await loadRecord(retryResult.recordPath)).toMatchObject({ outcome: 'blocked', target });
+    if (outcome === 'blocked' || phase === 'snapshot') expect(await loadRecord(retryResult.recordPath)).toMatchObject({ outcome: 'blocked', target });
+    else expect(retryResult.recordPath).toBeUndefined();
     expect(await readdir(join(root, 'locks'))).toHaveLength(outcome === 'blocked' ? 0 : 1);
     for (const [path, bytes] of original) expect(await readFile(path)).toEqual(bytes);
     expect(mutations).toBe(0);
-    expect(snapshots).toBe(2);
+    expect(snapshots).toBe(phase === 'snapshot' ? 2 : outcome === 'blocked' ? 1 : 0);
   } finally {
     await Promise.all(children.map(child => child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : new Promise<void>(accept => { child.once('close', () => accept()); child.kill('SIGKILL'); })));
     server.closeAllConnections(); await new Promise<void>(accept => server.close(() => accept()));

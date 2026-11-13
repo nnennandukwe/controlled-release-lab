@@ -12,7 +12,7 @@ import { policy, policyDigest, requestValidity } from '../tools/promotion.js';
 import { exposurePolicyDigest, rosterDigest } from '../tools/exposure-observe.js';
 import { exposureRequestSchema, serializeExposure, executeExposure, loadExposureRecord, createExposureEnvelope, verifyExposureRelease } from '../tools/exposure.js';
 import { desiredFlagState, LaunchDarkly } from '../tools/launchdarkly.js';
-import { acquireLock } from '../tools/evidence.js';
+import { acquireLock, LabError } from '../tools/evidence.js';
 import { sha256 } from '../tools/setup-verifier.js';
 import type { Hosting, Snapshot } from '../tools/railway.js';
 import captured from './fixtures/launchdarkly-off.json' with { type:'json' };
@@ -314,6 +314,30 @@ it('clears a completed conditional rejection without requiring its unapplied fla
  expect(recovered.outcome).toBe('blocked');expect(recovered.reasonCodes).toContain('COMPLETED_ATTEMPT_CLEANUP');
  expect(await readdir(join(work,'locks'))).toHaveLength(0);expect(scenario.patches()).toBe(1);
  expect((await loadExposureRecord(recovered.recordPath)).featureProof).toBeNull();
+});
+
+it.each(['hosting scope','flag scope','hosting snapshot','flag snapshot'])('preserves the original exposure recovery command after failed %s preflight',async phase=>{
+ const scenario=await fixture({conflict:true}),work=join(scenario.root,'work');
+ const unlink=fs.unlink;
+ const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
+  if(String(path).endsWith('.lock'))throw Object.assign(new Error('Injected lock cleanup failure'),{code:'EACCES'});
+  return unlink(path);
+ });
+ const original=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
+ cleanup.mockRestore();
+ const bytes=await readFile(original.recordPath);
+ const error=new LabError('PROVIDER_REJECTED','Synthetic preflight rejection.');
+ const failure=phase==='hosting scope'?vi.spyOn(scenario.hosting,'assertScope').mockRejectedValue(error)
+  :phase==='flag scope'?vi.spyOn(scenario.flags,'assertScope').mockRejectedValue(error)
+  :phase==='hosting snapshot'?vi.spyOn(scenario.hosting,'snapshot').mockRejectedValue(error)
+  :vi.spyOn(scenario.flags,'snapshot').mockRejectedValue(error);
+ await expect(executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport)).rejects.toMatchObject({code:'PROVIDER_REJECTED',recoveryCommand:expect.stringContaining(`reconcile-exposure --target staging --attempt ${original.attemptId}`)});
+ expect(await readdir(join(work,'locks'))).toHaveLength(1);expect(await readFile(original.recordPath)).toEqual(bytes);
+ failure.mockRestore();
+ const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
+ expect(recovered).toMatchObject({outcome:'blocked',reasonCodes:['COMPLETED_ATTEMPT_CLEANUP']});
+ expect(await readdir(join(work,'locks'))).toHaveLength(0);expect(scenario.patches()).toBe(1);
+ expect(await readFile(original.recordPath)).toEqual(bytes);
 });
 
 it.each(['record','intent'])('rejects exposure %s copied under another attempt UUID',async format=>{
