@@ -91,3 +91,23 @@ binds source `82bdb9b80b04da1df82992ab725a4a16fe0e6487`, from 15:06:54 to
 preserved original bytes and provider state, and completed blocked owned-lock
 cleanup with zero mutation attempts. The retry and process-tree regressions are
 local checks; this hosted receipt records the actual Railway requests separately.
+
+## Scope-read recovery
+
+Hosted review of `8c0dece` identified an earlier boundary: Railway scope
+verification ran before the deployment journal catch. If that read failed, the
+CLI retained the original lock but returned help without the recovery UUID and
+custom config. The corresponding exposure provider/flag preflight paths had the
+same diagnostic gap. Six new cases failed before the fix. Typed preflight errors
+now carry the original-owner command after prior identity and request checks;
+scope enforcement still precedes mutation locks and effects.
+
+The [two-phase hosted receipt](evidence/operator-recovery-2026-11-13-preflight.json)
+records source `e81a70ad1f2857506ced660c7f4a923a3e57809e`, from 15:31:17 to
+15:31:21 Pacific. Snapshot rejection used seven measured provider reads; scope
+rejection used six. Both actual Railway HTTP 400 responses preserved the original
+owner and executable recovery command. Each retry saved blocked cleanup evidence,
+released only its owned lock, preserved earlier bytes and observed unchanged
+provider state. Scope rejection correctly claimed no newly saved failure record.
+The protected opt-in job now runs both phases separately and retains both
+receipts. No application mutation was attempted in either check.
