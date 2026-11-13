@@ -1,8 +1,32 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { hostedOperatorRecovery } from '../tools/hosted-operator-recovery.js';
+import { checkHostedReadEvents, hostedOperatorRecovery, type HostedReadEvent } from '../tools/hosted-operator-recovery.js';
+import { Railway } from '../tools/railway.js';
+import policy from '../config/release-policy.json' with { type: 'json' };
 import { resolveRelease } from '../tools/release-workflow.js';
 
 afterEach(() => vi.restoreAllMocks());
+
+it('accepts observed read retries after the actual Railway adapter recovers', async () => {
+  const events: HostedReadEvent[] = [{ status: 200 }, { injected: true, status: 400, errorCount: 1 }];
+  let calls = 0;
+  const transport: typeof fetch = async () => {
+    const status = ++calls === 1 ? 429 : 200;
+    events.push({ status });
+    return Response.json({ data: { projectToken: policy.targets.staging } }, { status, headers: { 'retry-after': '0' } });
+  };
+  await new Railway('synthetic-test-token', policy.targets.staging, transport).assertScope();
+  events.push({ status: 200 });
+  expect(calls).toBe(2);
+  expect(() => checkHostedReadEvents(events)).not.toThrow();
+});
+
+it.each([
+  [{ status: 200 }, { injected: true, status: 400, errorCount: 1 }, { status: 200 }],
+  [{ status: 200 }, { injected: true, status: 400, errorCount: 1 }, { status: 200 }, { status: 200 }, { mutationRejected: true }],
+  [{ status: 200 }, { injected: true, status: 400, errorCount: 1 }, { status: 200 }, { status: 200 }, { status: 400, errorCount: 1 }],
+])('rejects incomplete or unsafe provider read events: %j', (...events) => {
+  expect(() => checkHostedReadEvents(events as HostedReadEvent[])).toThrow();
+});
 
 it.each([
   { LAB_TARGET: 'staging' },

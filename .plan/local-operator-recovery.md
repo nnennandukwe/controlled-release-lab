@@ -149,3 +149,10 @@ transport. The receipt binds source, provider subject, times, request counts,
 original bytes, lock cleanup and before/after provider state. CI preserves failed
 checks and successful receipts in the existing state artifact. Local invocation
 requires explicit staging opt-in and the same scoped credential.
+
+Final local review at `806f921` found two harness cases to reproduce. A successful
+Railway read retry must remain valid while its additional request is counted.
+Timeout or cancellation must stop the shell/npm/CLI process group, including a
+descendant that holds output pipes after its parent exits. The new checks will
+use the actual adapter retry path and real disposable process trees; retained
+journals remain the recovery source when a command stops.

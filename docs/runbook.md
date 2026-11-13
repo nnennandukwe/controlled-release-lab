@@ -224,6 +224,11 @@ artifact. It supplies no release eligibility. Other operations and live targets
 reject this input before resolution. Ordinary doctor calls keep their preflight
 behavior.
 
+The standalone hosted-check harness uses a POSIX shell and process groups; use
+the protected Ubuntu job or run it locally on macOS/Linux. Timeouts and
+cancellation stop the owned command group, including shell/npm descendants.
+Successful supported Railway read retries remain valid and count in the receipt.
+
 If lock removal fails after a result's saved, JSON output keeps `recordPath`,
 `attemptId`, and the measured `outcome`, plus a `cleanupWarning` with code
 `LOCK_CLEANUP_REQUIRED` and the filesystem `causeCode` (for example `EACCES`).
