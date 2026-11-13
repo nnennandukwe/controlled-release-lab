@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "outcome": "hosted_cleanup_verified",
+  "authorized": false,
+  "operatorSourceSha": "7f2241305e40eb54411ad6322d82ee6470833ce6",
+  "startedAt": "2026-11-13T22:50:59.377Z",
+  "finishedAt": "2026-11-13T22:51:01.017Z",
+  "targetName": "staging",
+  "target": {
+    "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+    "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+    "environmentId": "80bb920f-55eb-479c-b395-cacfb78344c3",
+    "url": "https://catalog-staging-55dc.up.railway.app"
+  },
+  "before": {
+    "sourceImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:1f38ac2ff7292d873a2162f91631a3dbc810b31f5a83b9e702c6f621f6ada8f4",
+    "latestId": "ccf563b3-8dd2-4f3d-af4f-ed65196f8b77",
+    "active": [
+      {
+        "id": "ccf563b3-8dd2-4f3d-af4f-ed65196f8b77",
+        "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+        "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+        "environmentId": "80bb920f-55eb-479c-b395-cacfb78344c3",
+        "status": "SUCCESS",
+        "canRollback": true,
+        "image": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:1f38ac2ff7292d873a2162f91631a3dbc810b31f5a83b9e702c6f621f6ada8f4",
+        "metadataKeys": [
+          "image",
+          "imageDigest",
+          "logsV2",
+          "reason",
+          "runtime",
+          "serviceManifest",
+          "volumeMounts"
+        ]
+      }
+    ],
+    "configurationFingerprint": "d174192d79e0d2f36ddbff6a7c8ba587fa9771db6c10b427a51970531375bbad"
+  },
+  "after": {
+    "sourceImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:1f38ac2ff7292d873a2162f91631a3dbc810b31f5a83b9e702c6f621f6ada8f4",
+    "latestId": "ccf563b3-8dd2-4f3d-af4f-ed65196f8b77",
+    "active": [
+      {
+        "id": "ccf563b3-8dd2-4f3d-af4f-ed65196f8b77",
+        "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+        "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+        "environmentId": "80bb920f-55eb-479c-b395-cacfb78344c3",
+        "status": "SUCCESS",
+        "canRollback": true,
+        "image": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:1f38ac2ff7292d873a2162f91631a3dbc810b31f5a83b9e702c6f621f6ada8f4",
+        "metadataKeys": [
+          "image",
+          "imageDigest",
+          "logsV2",
+          "reason",
+          "runtime",
+          "serviceManifest",
+          "volumeMounts"
+        ]
+      }
+    ],
+    "configurationFingerprint": "d174192d79e0d2f36ddbff6a7c8ba587fa9771db6c10b427a51970531375bbad"
+  },
+  "fixture": {
+    "syntheticTerminalRecord": true,
+    "simulatedFailure": "one invalid read-only GraphQL field sent to the actual Railway endpoint"
+  },
+  "originalAttemptId": "4b048099-3d10-4295-abbe-59751d962c17",
+  "originalRecordUnchanged": true,
+  "lockRetainedAfterFailure": true,
+  "lockReleased": true,
+  "providerMutations": 0,
+  "providerRequests": 7,
+  "events": [
+    {
+      "at": "2026-11-13T22:51:00.066Z",
+      "endpoint": "https://backboard.railway.com/graphql/v2",
+      "injected": false,
+      "status": 200,
+      "errorCount": 0
+    },
+    {
+      "at": "2026-11-13T22:51:00.130Z",
+      "endpoint": "https://backboard.railway.com/graphql/v2",
+      "injected": true,
+      "status": 400,
+      "errorCount": 1
+    },
+    {
+      "at": "2026-11-13T22:51:00.783Z",
+      "endpoint": "https://backboard.railway.com/graphql/v2",
+      "injected": false,
+      "status": 200,
+      "errorCount": 0
+    },
+    {
+      "at": "2026-11-13T22:51:00.867Z",
+      "endpoint": "https://backboard.railway.com/graphql/v2",
+      "injected": false,
+      "status": 200,
+      "errorCount": 0
+    }
+  ],
+  "failedRead": {
+    "outcome": "blocked",
+    "reasonCodes": [
+      "PROVIDER_HTTP"
+    ],
+    "originalOwnerCommandVerified": true,
+    "customConfigCommandExecuted": true
+  },
+  "recovery": {
+    "outcome": "blocked",
+    "reasonCodes": [
+      "COMPLETED_ATTEMPT_CLEANUP"
+    ],
+    "originalRecordSha256": "4d68ee1fa2d130bab2eaa7065725934a388ae46d840913c673981e32dbd3158e",
+    "failedRecordSha256": "ab0eb399b2bb9c6e3275756ddfee46776586c104135129706b03e0cfe0e2d67b",
+    "recoveredRecordSha256": "e0a2fca952cc2f1bf53ed60269c57cf993ef2c9a46336d95dd2f34ff10e7e67f"
+  },
+  "audience": "Staging operator API reads; no application request sample or feature-cohort measurement.",
+  "pipeline": {
+    "workflow": ".github/workflows/operate.yml",
+    "ref": "refs/heads/main",
+    "operation": "doctor",
+    "target": "staging",
+    "rehearse_operator_recovery": true,
+    "premergeExecution": "Explicitly authorized local invocation with the staging-scoped project credential; protected pipeline invocation follows merge."
+  }
+}

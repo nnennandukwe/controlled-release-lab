@@ -1,0 +1,11 @@
+{
+  "at": "2026-11-13T22:53:32.284Z",
+  "status": 200,
+  "identity": {
+    "sourceSha": "fb9aaaea83a80cecfd63c30ed2de81ae68a0f99c",
+    "buildRunId": "35380922988",
+    "catalogVersion": "1",
+    "environment": "staging",
+    "deploymentId": "ccf563b3-8dd2-4f3d-af4f-ed65196f8b77"
+  }
+}
