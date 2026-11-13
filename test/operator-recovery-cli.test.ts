@@ -92,7 +92,7 @@ it('preserves cancellation during CLI observation and recovers the original reta
     expect(mutations).toBe(0);
     expect(requests).toBeLessThanOrEqual(1163);
   } finally {
-    for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await Promise.all(children.map(child => child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : new Promise<void>(accept => { child.once('close', () => accept()); child.kill('SIGKILL'); })));
     server.closeAllConnections(); await new Promise<void>(accept => server.close(() => accept()));
     await rm(root, { recursive: true, force: true });
   }

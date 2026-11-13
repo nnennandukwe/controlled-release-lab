@@ -64,3 +64,15 @@ observation; restore intent; reobserve; publish a new checksummed record; fail
 cleanup; restart cleanup through fresh observation; reject unowned/edited state.
 Production consumers are `loadRecord`, `loadExposureRecord`, and the CLI. New
 results don't establish hosted acceptance or participant outcomes.
+
+## Additional observed recovery guards
+
+At the original base, `loadAttempt` accepted a checksummed record whose UUID
+differed from the requested directory. The reproduction returned
+`mismatchAccepted: true`. Both deployment and exposure consumers now reject a
+record or fallback intent copied under another UUID before provider access.
+
+The failed-measurement regression also verifies that a subsequent recovery command
+names the original lock owner rather than the new failed observation attempt.
+Real protected-gate tests cover initial expiry and identity rejection immediately
+before and after the source update. Only the latter retains an unknown effect.

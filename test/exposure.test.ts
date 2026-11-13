@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import { rehearseExposureRecovery } from '../tools/exposure-rehearsal.js';
 import { createExposureDiagnostic, inspectExposureDiagnostic } from '../tools/exposure-diagnostic.js';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -314,4 +314,17 @@ it('clears a completed conditional rejection without requiring its unapplied fla
  expect(recovered.outcome).toBe('blocked');expect(recovered.reasonCodes).toContain('COMPLETED_ATTEMPT_CLEANUP');
  expect(await readdir(join(work,'locks'))).toHaveLength(0);expect(scenario.patches()).toBe(1);
  expect((await loadExposureRecord(recovered.recordPath)).featureProof).toBeNull();
+});
+
+it.each(['record','intent'])('rejects exposure %s copied under another attempt UUID',async format=>{
+ const scenario=await fixture({lost:true}),work=join(scenario.root,'work');
+ const original=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
+ const copied=randomUUID(),directory=join(work,'exposure/attempts',copied);
+ await cp(join(work,'exposure/attempts',original.attemptId!),directory,{recursive:true});
+ if(format==='intent'){
+  await rm(join(directory,'exposure-record.json'));await rm(join(directory,'exposure-record.json.sha256'));
+ }
+ const patches=scenario.patches();
+ await expect(executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:copied},scenario.hosting,scenario.flags,work,scenario.transport)).rejects.toMatchObject({code:'ATTEMPT_IDENTITY_MISMATCH'});
+ expect(scenario.patches()).toBe(patches);expect(await readdir(join(work,'locks'))).toHaveLength(1);
 });
