@@ -13,7 +13,14 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
   const repository = fileURLToPath(new URL('../', import.meta.url));
   const operatorSourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim();
   const startedAt = new Date().toISOString(), target = policy.targets.staging;
-  const hosting = new Railway(environment.RAILWAY_PROJECT_TOKEN ?? '', target);
+  const directProviderReads: { at: string; status: number }[] = [];
+  const hosting = new Railway(environment.RAILWAY_PROJECT_TOKEN ?? '', target, async (input, options) => {
+    const body = JSON.parse(String(options?.body)) as { query: string };
+    if (String(input) !== 'https://backboard.railway.com/graphql/v2' || !/^query[\s(]/.test(body.query)) throw new LabError('HOSTED_CHECK_FAILED', 'Only Railway read requests are allowed.');
+    const response = await fetch(input, { ...options, redirect: 'error' });
+    directProviderReads.push({ at: new Date().toISOString(), status: response.status });
+    return response;
+  });
   await hosting.assertScope(target);
   const before = await hosting.snapshot();
   const parent = resolve(environment.LAB_HOSTED_RECOVERY_ROOT ?? 'work/hosted-operator-recovery');
@@ -59,7 +66,7 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
   if (events.some(event => event.mutationRejected) || events.length !== 4 || rejected.length !== 1 || !(rejected[0]!.errorCount || rejected[0]!.status! >= 400)) throw new LabError('HOSTED_CHECK_FAILED', 'Expected one actual provider rejection and four read requests without mutation attempts.');
   const after = await hosting.snapshot();
   if (fingerprint(before) !== fingerprint(after)) throw new LabError('HOSTED_CHECK_FAILED', 'Provider subject changed during the read-only recovery check.');
-  const receipt = { schemaVersion: 1, outcome: 'hosted_cleanup_verified', authorized: false, operatorSourceSha, startedAt, finishedAt: new Date().toISOString(), targetName: 'staging', target, before, after, fixture: { syntheticTerminalRecord: true, simulatedFailure: 'one invalid read-only GraphQL field sent to the actual Railway endpoint' }, originalAttemptId: journal.attemptId, originalRecordUnchanged: true, lockRetainedAfterFailure: true, lockReleased: true, providerMutations: 0, providerRequests: events.length + 3, failedRecordPath: failed.recordPath, recoveredRecordPath: recovered.recordPath, events, directory };
+  const receipt = { schemaVersion: 1, outcome: 'hosted_cleanup_verified', authorized: false, operatorSourceSha, startedAt, finishedAt: new Date().toISOString(), targetName: 'staging', target, before, after, fixture: { syntheticTerminalRecord: true, simulatedFailure: 'one invalid read-only GraphQL field sent to the actual Railway endpoint' }, originalAttemptId: journal.attemptId, originalRecordUnchanged: true, lockRetainedAfterFailure: true, lockReleased: true, providerMutations: 0, providerRequests: events.length + directProviderReads.length, directProviderReads, failedRecordPath: failed.recordPath, recoveredRecordPath: recovered.recordPath, events, directory };
   await writeFile(join(directory, 'receipt.json'), `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
   return receipt;
 }
