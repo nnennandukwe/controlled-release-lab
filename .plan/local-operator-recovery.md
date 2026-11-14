@@ -291,3 +291,19 @@ image, so only the historical configuration differs. Receipts expose those prior
 subject fields, and artifact inspection checks them against current provider
 readback. Earlier records remain unchanged and their broader subject-change
 coverage is labeled accurately.
+
+## Unexpected files in the lock namespace
+
+Informationaleeac67e5 identified that metadata could be mislabeled as an active
+operation and lacked a supported repair procedure. Two real-filesystem cases
+(held and released owner plus a seeded metadata file) reproduced that diagnostic.
+A rename collision will now inspect ownership and report malformed namespace
+state explicitly. The error and runbook direct an operator to preserve a backup,
+relocate only identified unrelated files they own, keep every owner marker intact,
+then retry read-only recovery or resolve a new authorized operation.
+
+The operator doesn't delete or relocate unknown files automatically. Automatic
+removal violates the existing ownership/preservation invariant. Tests preserve backup and
+relocated bytes, prove the original owner remains while held, then demonstrate
+normal release/acquisition after the identified metadata is moved. Conflicting or
+unidentified owner markers remain rejected for investigation.

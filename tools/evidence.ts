@@ -83,7 +83,7 @@ export async function readLockOwner(root: string, target: Target): Promise<strin
     }
   }
   if (!entries.length) return undefined;
-  if (entries.length !== 1 || !/^[a-f0-9]{64}\.lock$/.test(entries[0]!)) throw new LabError('LOCK_STATE_INVALID', 'Preserve the malformed environment lock and inspect its owner markers before recovery.');
+  if (entries.length !== 1 || !/^[a-f0-9]{64}\.lock$/.test(entries[0]!)) throw new LabError('LOCK_STATE_INVALID', `Preserve a backup of ${path}. Move only identified unrelated files you own outside this directory, keep all owner markers intact, and retry. If you can't identify the entries, stop and inspect the retained evidence.`);
   let owner: string;
   try { owner = await readFile(join(path, entries[0]!), 'utf8'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
@@ -150,7 +150,10 @@ export async function acquireLock(root: string, target: Target, attemptId: strin
   } catch (error) {
     try { await rm(prepared, { recursive: true, force: true }); }
     catch (cleanupError) { throw new LabError('LOCK_PREPARATION_CLEANUP_FAILED', `No lock was acquired. Preserve canonical locks and remove the unpublished preparation at ${prepared} after repairing access.`, 'blocked', { cause: new AggregateError([error, cleanupError]) }); }
-    if (['EEXIST', 'ENOTEMPTY', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw new LabError('OPERATION_LOCKED', 'An operation owns this environment. Reconcile its attempt before starting another mutation.');
+    if (['EEXIST', 'ENOTEMPTY', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) {
+      await readLockOwner(root, target); // Report malformed state before an ownership conflict.
+      throw new LabError('OPERATION_LOCKED', 'Another operation owns or just changed this environment lock. Inspect its current owner. Reconcile any retained attempt before starting another mutation.');
+    }
     throw error;
   }
   return () => releaseReconciledLock(root, target, attemptId);

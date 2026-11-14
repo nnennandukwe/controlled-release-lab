@@ -789,3 +789,14 @@ cleanliness again before emitting successful receipts. Preserve edits in their
 own checkout or commit; keep generated check artifacts under ignored `work/` or
 outside source. These checks detect ordinary source changes during the cooperative
 lab exercise. A failed source check retains its diagnostic artifacts for review.
+
+
+If a lock namespace contains unrelated files such as seeded metadata, the operator
+reports `LOCK_STATE_INVALID` and preserves every entry. First preserve the work
+artifact or make a separate backup. Identify any unrelated files you own and move
+those files to a separate preserved location, keeping every owner marker intact.
+Then retry read-only reconciliation for a retained owner. If no owner remains,
+resolve a new authorized operation. Unknown or conflicting markers require
+inspection of preserved evidence before repair. This procedure preserves metadata
+and notes while restoring the controlled namespace; the operator doesn't remove
+unidentified files automatically.

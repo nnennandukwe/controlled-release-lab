@@ -125,7 +125,7 @@ it('rejects malformed ownership without deleting its bytes', async () => {
   expect(await fs.readFile(marker, 'utf8')).toBe('changed');
   await writeFile(join(path, 'unrecognized'), 'preserve');
   await expect(ownsLock(directory, target, 'first')).rejects.toMatchObject({ code: 'LOCK_STATE_INVALID' });
-  await expect(acquireLock(directory, target, 'next')).rejects.toMatchObject({ code: 'OPERATION_LOCKED' });
+  await expect(acquireLock(directory, target, 'next')).rejects.toMatchObject({ code: 'LOCK_STATE_INVALID' });
   expect(await fs.readFile(join(path, 'unrecognized'), 'utf8')).toBe('preserve');
 });
 
@@ -147,4 +147,23 @@ it('preserves a retained legacy owner when another acquisition is refused', asyn
   await releaseReconciledLock(directory, target, 'retained-owner');
   await acquireLock(directory, target, 'new-owner');
   expect(await ownsLock(directory, target, 'new-owner')).toBe(true);
+});
+
+it.each(['held', 'released'])('diagnoses stray metadata beside a %s owner and preserves it through operator recovery', async state => {
+  const directory = await root(), release = await acquireLock(directory, target, 'original');
+  const path = join(directory, 'locks', `${fingerprint([target.projectId, target.serviceId, target.environmentId])}.lock`);
+  if (state === 'released') await release();
+  const metadata = Buffer.from('fixture metadata to preserve');
+  await writeFile(join(path, '.DS_Store'), metadata);
+  await expect(acquireLock(directory, target, 'next')).rejects.toMatchObject({ code: 'LOCK_STATE_INVALID', message: expect.stringContaining('Preserve') });
+  expect(await fs.readFile(join(path, '.DS_Store'))).toEqual(metadata);
+  // Model an operator preserving and relocating an identified file they own.
+  await fs.cp(path, join(directory, 'lock-backup'), { recursive: true, errorOnExist: true, force: false });
+  expect(await fs.readFile(join(directory, 'lock-backup/.DS_Store'))).toEqual(metadata);
+  await fs.rename(join(path, '.DS_Store'), join(directory, 'preserved-metadata'));
+  expect(await fs.readFile(join(directory, 'preserved-metadata'))).toEqual(metadata);
+  expect(await ownsLock(directory, target, 'original')).toBe(state === 'held');
+  if (state === 'held') await release();
+  await acquireLock(directory, target, 'next');
+  expect(await ownsLock(directory, target, 'next')).toBe(true);
 });
