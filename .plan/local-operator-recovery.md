@@ -454,3 +454,18 @@ Actual lock ownership is inspected by acquireLock/readLockOwner/ownsLock after
 restart and each fault. OS liveness is real in process tests; deterministic I/O
 failpoints use a labeled stopped-PID seam. Power-loss durability and shared
 filesystems across concurrently running hosts remain outside the local model.
+
+## Unreadable successful responses
+
+Local50503fce identifies that an HTTP status alone doesn't establish what a
+successful response served. Malformed or interrupted HTTP200 bodies retain
+unknown verification and the original owner. A parsed response with wrong
+behavior, or an observed HTTP error response, can establish unhealthy behavior
+after a complete window. Extend the existing late-failure/retry matrix with
+malformed JSON and body-stream failure, plus an HTTP503 cleanup control.
+
+Both malformed-JSON and interrupted-body cases failed before the predicate fix.
+All18targeted recovery checks passed after, including same-UUID recovery, complete
+HTTP503 windows and parsed unhealthy responses. Typecheck/build passed. The
+optional native8f17b50d extra-read retry behavior stays conservative and is now
+explicit in the runbook; its status isn't manually changed.

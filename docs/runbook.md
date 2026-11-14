@@ -271,7 +271,8 @@ For a previously verified result, reconciliation attempts fresh provider and
 runtime verification. If fresh readback shows subject drift or a complete window
 returns unhealthy HTTP responses, it saves blocked readback with the failure reason
 and `COMPLETED_ATTEMPT_CLEANUP`, then clears only the original owned lock.
-Provider/flag read errors, missing responses and evidence-write failures preserve
+Provider/flag read errors, missing or unreadable successful responses, and
+evidence-write failures preserve
 the original owner and its retry command. Their new record keeps verification
 unknown so the same UUID can retry after the dependency recovers. Actual flag
 readback is journaled before a mismatch can finish cleanup. For a completed unsuccessful
@@ -280,6 +281,8 @@ the original owned lock, and stays blocked. That cleanup supplies no release
 eligibility; inspect the earlier failure and resolve fresh authority for recovery.
 The hosting adapter must match the retained project, service, environment and URL.
 Image or configuration drift stays visible in the blocked cleanup record.
+During deployment recovery, drift first detected inside feature verification can
+leave the original owner for another read-only retry with the same UUID.
 Each path saves a new record and preserves the earlier bytes. Acknowledged native
 rollbacks remain unknown and require verified recovery; a blocked follow-up has a
 new UUID and keeps the original lock.

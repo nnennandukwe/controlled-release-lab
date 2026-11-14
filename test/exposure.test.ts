@@ -424,7 +424,7 @@ it.each(['-intent.json','-before-provider.json','-before-flag.json'])('retains a
  expect(recovered.outcome).toBe('verified');expect(await readLockOwner(work,scenario.request.target)).toBeUndefined();expect(scenario.patches()).toBe(1);
 },30000);
 
-it.each(['provider','flag','request','journal','flag-journal','proof-journal'])('retains the verified exposure owner through a late %s failure and retry',async fault=>{
+it.each(['provider','flag','request','malformed-response','incomplete-response','journal','flag-journal','proof-journal'])('retains the verified exposure owner through a late %s failure and retry',async fault=>{
  const scenario=await fixture(),work=join(scenario.root,'work'),nativeUnlink=fs.unlink;
  const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
   if(String(path).endsWith('.lock'))throw Object.assign(new Error('fixture retained terminal lock'),{code:'EACCES'});
@@ -451,8 +451,12 @@ it.each(['provider','flag','request','journal','flag-journal','proof-journal'])(
   restore=()=>failure.mockRestore();
  }
  const missingResponse:typeof fetch=async()=>{throw new Error('fixture missing response');};
+ const unreadableResponse:typeof fetch=async()=>fault==='malformed-response'
+  ?new Response('not JSON',{status:200})
+  :new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('{'));controller.error(new Error('fixture interrupted body'));}}),{status:200});
  const retry={operation:'reconcile-exposure' as const,targetName:'staging' as const,attempt:original.attemptId!};
- const failed=await executeExposure(retry,scenario.hosting,scenario.flags,work,fault==='request'?missingResponse:scenario.transport);
+ const failedTransport=fault==='request'?missingResponse:fault.endsWith('-response')?unreadableResponse:scenario.transport;
+ const failed=await executeExposure(retry,scenario.hosting,scenario.flags,work,failedTransport);
  restore();
  expect(failed.outcome).toBe('unknown_outcome');expect(failed.reasonCodes).not.toContain('COMPLETED_ATTEMPT_CLEANUP');
  expect(failed.recoveryInstruction).toContain(`--attempt ${original.attemptId}`);
@@ -463,7 +467,7 @@ it.each(['provider','flag','request','journal','flag-journal','proof-journal'])(
  expect(await readFile(original.recordPath)).toEqual(bytes);expect(scenario.patches()).toBe(1);
 },30000);
 
-it('clears a verified exposure owner after a complete unhealthy response window',async()=>{
+it.each(['functional','http'])('clears a verified exposure owner after a complete %s failure window',async fault=>{
  const scenario=await fixture(),work=join(scenario.root,'work'),nativeUnlink=fs.unlink;
  const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
   if(String(path).endsWith('.lock'))throw Object.assign(new Error('fixture retained terminal lock'),{code:'EACCES'});
@@ -472,6 +476,7 @@ it('clears a verified exposure owner after a complete unhealthy response window'
  const original=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
  cleanup.mockRestore();expect(original.outcome).toBe('verified');
  const unhealthy:typeof fetch=async(input,options)=>{
+  if(fault==='http'&&String(input).startsWith(scenario.request.target.url))return new Response('unavailable',{status:503});
   const response=await scenario.transport(input,options);
   return String(input).startsWith(scenario.request.target.url)?Response.json({...await response.json(),results:[{id:'wrong-result'}]}):response;
  };
