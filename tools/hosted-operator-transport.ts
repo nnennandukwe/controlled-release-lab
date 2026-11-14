@@ -1,5 +1,5 @@
-// Hosted teaching fixture: send one invalid read to Railway itself, then use
-// actual provider readback. This helper never supplies a response or writes state.
+// Release-operations preload: restrict hosted recovery children to Railway reads.
+// The teaching fixture sends one invalid read, then observes actual provider responses.
 import { appendFile } from 'node:fs/promises';
 
 const log = process.env.LAB_HOSTED_RECOVERY_LOG;

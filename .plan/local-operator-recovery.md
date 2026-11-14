@@ -367,3 +367,11 @@ inspection, then derives the lock from the retained target. Two real-filesystem
 cases failed before edits: wrong map with no foreign lock and wrong map with an
 unrelated malformed lock. Both require RESTORE_TARGET_MISMATCH before provider
 access, preserving the original owner/record and unrelated note bytes.
+
+## Hosted guard ownership
+
+Native informational3d138810 identifies a release-operations guard under test
+helpers. Move the unchanged Railway read-only transport preload into tools/,
+update its harness path and existing retry tests, and label its runtime role.
+Existing hosted cases will exercise the moved preload with actual staging reads;
+CI and local retry cases verify module resolution. Historical receipts stay intact.

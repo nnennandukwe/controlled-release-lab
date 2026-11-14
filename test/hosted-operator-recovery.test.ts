@@ -72,7 +72,7 @@ it.each([502, 503, 504])('preserves the adapter retry for an HTML HTTP %s respon
       ? new Response('<html>Gateway unavailable</html>', { status, headers: { 'retry-after': '0' } })
       : Response.json({ data: { projectToken: policy.targets.staging } });
     vi.resetModules();
-    await import('./helpers/hosted-operator-transport.js');
+    await import('../tools/hosted-operator-transport.js');
     await new Railway('synthetic-test-token', policy.targets.staging, globalThis.fetch).assertScope();
     expect(calls).toBe(2);
     const events = (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line));

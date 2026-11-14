@@ -96,7 +96,7 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
   const originalPath = await journal.finish(original);
   const retained = await Promise.all([originalPath, `${originalPath}.sha256`].map(async path => [path, await readFile(path)] as const));
   const log = join(directory, 'provider-reads.ndjson');
-  const preload = join(repository, 'test/helpers/hosted-operator-transport.ts');
+  const preload = join(repository, 'tools/hosted-operator-transport.ts');
   const run = async (command: string, args: string[], rejectRead: boolean) => {
     const { code, stdout, stderr, timedOut } = await runHostedCommand(command, args, { cwd: repository, env: {
       PATH: environment.PATH, RAILWAY_PROJECT_TOKEN: environment.RAILWAY_PROJECT_TOKEN, LD_READ_TOKEN: 'unused-in-terminal-cleanup',
