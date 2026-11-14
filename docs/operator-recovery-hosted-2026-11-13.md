@@ -170,3 +170,14 @@ The protected opt-in step now runs both read-rejection phases for two terminal
 fixtures. The verified-drift fixture uses an explicitly synthetic historical
 configuration to exercise the new cleanup branch. The actual hosted configuration
 stays unchanged. Each receipt identifies its fixture and actual provider subject.
+
+All four actual hosted cases passed from source
+`438c329cb1b9f4ce101c33665053a8ab46fb8fc8`. The producer receipts are preserved
+unchanged: blocked-result [snapshot](evidence/operator-recovery-2026-11-13-final-blocked-snapshot.json)
+and [scope](evidence/operator-recovery-2026-11-13-final-blocked-scope.json), plus
+verified-drift [snapshot](evidence/operator-recovery-2026-11-13-final-verified-drift-snapshot.json)
+and [scope](evidence/operator-recovery-2026-11-13-final-verified-drift-scope.json).
+Together they recorded 26 provider reads, zero mutation attempts, preserved
+original records/checksums and unchanged hosted deployment/configuration. Both
+verified-drift retries saved blocked `COMPLETED_SUBJECT_CHANGED` cleanup with
+`COMPLETED_ATTEMPT_CLEANUP`, then released only their retained owner markers.
