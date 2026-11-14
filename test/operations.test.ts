@@ -344,3 +344,25 @@ it('keeps acknowledged rollback uncertainty locked after a blocked reconciliatio
   expect(await readLockOwner(directory, target)).toEqual(expect.any(String));
   expect(hosting.rollback).toHaveBeenCalledOnce();
 });
+
+it.each(['configuration', 'runtime'])('clears a previously verified owner after %s drift without fresh eligibility', async drift => {
+  const directory = await root(), hosting = host(), nativeUnlink = fs.unlink;
+  const cleanup = vi.spyOn(fs, 'unlink').mockImplementation(async path => {
+    if (String(path).endsWith('.lock')) throw Object.assign(new Error('fixture retained terminal lock'), { code: 'EACCES' });
+    return nativeUnlink(path);
+  });
+  const original = await execute(request, hosting, directory, traffic);
+  cleanup.mockRestore();
+  expect(original.outcome).toBe('verified');
+  const bytes = await readFile(original.recordPath), before = await hosting.snapshot();
+  if (drift === 'configuration') hosting.snapshot = vi.fn(async () => ({ ...before, configurationFingerprint: 'changed-after-success' }));
+  const unhealthy: typeof fetch = async () => Response.json({ sourceSha, environment: 'staging', deploymentId, requestId: '55555555-5555-4555-8555-555555555555', ranking: 'original', results: [{ id: 'wrong-result' }] });
+  const recovered = await execute({ ...request, operation: 'reconcile', attempt: original.attemptId! }, hosting, directory, drift === 'runtime' ? unhealthy : traffic);
+  expect(recovered.outcome).toBe('blocked');
+  expect(recovered.reasonCodes).toContain('COMPLETED_ATTEMPT_CLEANUP');
+  expect(recovered.recoveryInstruction).not.toContain('npm run lab -- reconcile');
+  expect(await readLockOwner(directory, target)).toBeUndefined();
+  expect(await readFile(original.recordPath)).toEqual(bytes);
+  expect((await loadRecord(recovered.recordPath)).outcome).toBe('blocked');
+  expect(hosting.updateImage).toHaveBeenCalledOnce(); expect(hosting.deploy).toHaveBeenCalledOnce();
+});

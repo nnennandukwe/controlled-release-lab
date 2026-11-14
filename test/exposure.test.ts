@@ -11,7 +11,7 @@ import { featureFixture } from './helpers/feature-fixture.js';
 import { policy, policyDigest, requestValidity } from '../tools/promotion.js';
 import { exposurePolicyDigest, rosterDigest } from '../tools/exposure-observe.js';
 import { exposureRequestSchema, serializeExposure, executeExposure, loadExposureRecord, createExposureEnvelope, verifyExposureRelease } from '../tools/exposure.js';
-import { desiredFlagState, LaunchDarkly } from '../tools/launchdarkly.js';
+import { desiredFlagState, flagSnapshot, LaunchDarkly } from '../tools/launchdarkly.js';
 import { readLockOwner, acquireLock, releaseReconciledLock, LabError } from '../tools/evidence.js';
 import { sha256 } from '../tools/setup-verifier.js';
 import type { Hosting, Snapshot } from '../tools/railway.js';
@@ -383,3 +383,21 @@ it('retains an unknown flag effect when the hosting subject drifts',async()=>{
  expect(await readLockOwner(work, scenario.request.target)).toEqual(expect.any(String));expect(await readFile(original.recordPath)).toEqual(bytes);
  expect(scenario.patches()).toBe(1);
 });
+
+it.each(['configuration','flag'])('clears a previously verified exposure after %s drift without fresh proof',async drift=>{
+ const scenario=await fixture(),work=join(scenario.root,'work'),nativeUnlink=fs.unlink;
+ const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
+  if(String(path).endsWith('.lock'))throw Object.assign(new Error('fixture retained terminal lock'),{code:'EACCES'});
+  return nativeUnlink(path);
+ });
+ const original=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
+ cleanup.mockRestore();expect(original.outcome).toBe('verified');
+ const bytes=await readFile(original.recordPath),before=await scenario.hosting.snapshot();
+ if(drift==='configuration')scenario.hosting.snapshot=vi.fn(async()=>({...before,configurationFingerprint:'f'.repeat(64)}));
+ else vi.spyOn(scenario.flags,'snapshot').mockResolvedValue(flagSnapshot(captured,'staging'));
+ const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
+ expect(recovered.outcome).toBe('blocked');expect(recovered.reasonCodes).toContain('COMPLETED_ATTEMPT_CLEANUP');
+ expect(await readLockOwner(work,scenario.request.target)).toBeUndefined();expect(await readFile(original.recordPath)).toEqual(bytes);
+ const record=await loadExposureRecord(recovered.recordPath);expect(record.featureProof).toBeNull();expect(()=>createExposureEnvelope(record,scenario.request.operator)).toThrow();
+ expect(scenario.patches()).toBe(1);
+},30000);

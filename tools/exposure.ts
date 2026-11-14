@@ -158,6 +158,7 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
   }
   const directory = prior ? join(prior.directory, 'release') : input.releaseDir;
   const terminalCleanup = prior && prior.record.outcome !== 'unknown_outcome' && prior.record.outcome !== 'verified';
+  const completedVerified = prior?.record.outcome === 'verified';
   if (!directory) throw new LabError('EXPOSURE_PROOF_REQUIRED', 'Use --release-dir with an exact authenticated exposure request.');
   const verified = await verifyExposureRelease(directory, !!prior), request = verified.request;
   if (request.targetName !== input.targetName || (!prior && request.operation !== input.operation) || (input.operation === 'expose' && request.stage !== input.stage)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'Command and resolved exposure request disagree.');
@@ -168,7 +169,7 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
   try {
     await hosting.assertScope(request.target); await flags.assertScope();
     beforeProvider = await hosting.snapshot();
-    if (!terminalCleanup) assertServing(beforeProvider, subject);
+    if (!terminalCleanup && !completedVerified) assertServing(beforeProvider, subject);
     before = await flags.snapshot();
   } catch (error) {
     if (!prior) throw error;
@@ -186,6 +187,7 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
     await journal.initialize(); await preserveRelease(join(journal.directory, 'release'), verified);
     await journal.append('intent', record); await journal.append('before-provider', beforeProvider); await journal.append('before-flag', before);
     if (terminalCleanup) throw new LabError('COMPLETED_ATTEMPT_CLEANUP', 'The earlier attempt already has a terminal unsuccessful result. Its owned lock can be cleared after this read-only record is saved. Inspect the earlier result and resolve fresh authority for any recovery.');
+    if (completedVerified) assertServing(beforeProvider, subject);
     if (mutating) {
       const fresh = await verifyExposureRelease(directory);
       if (fresh.requestDigest !== verified.requestDigest) throw new LabError('EXPOSURE_ATTACHMENT_CHANGED', 'Approved request changed before PATCH.');
@@ -214,8 +216,9 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
     record.recoveryInstruction = prior ? 'Desired provider state and sampled behavior observed. This does not attribute the change to the original PATCH.' : '';
   } catch (error) {
     const failure = error instanceof LabError ? error : new LabError('EXPOSURE_EXECUTION_ERROR', 'Exposure execution or persistence failed. Inspect retained evidence.');
-    record.outcome = (effectAttempted || prior) && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' && !(measuredStableState && ['EXPOSURE_HOLD', 'EXPOSURE_WINDOW'].includes(failure.code)) ? 'unknown_outcome' : failure.outcome;
-    record.reasonCodes = [failure.code]; record.recoveryInstruction = `${failure.message}${record.outcome === 'blocked' && measuredStableState ? ' Desired flag state is known but health is not verified. Independently authorize disable; no expansion evidence was issued.' : ''}${record.outcome === 'unknown_outcome' ? ` Reconcile exposure attempt ${prior?.record.attemptId ?? journal.attemptId}.` : ''}`;
+    if (completedVerified) record.featureProof = null;
+    record.outcome = completedVerified ? 'blocked' : (effectAttempted || prior) && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' && !(measuredStableState && ['EXPOSURE_HOLD', 'EXPOSURE_WINDOW'].includes(failure.code)) ? 'unknown_outcome' : failure.outcome;
+    record.reasonCodes = [failure.code, ...(completedVerified && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' ? ['COMPLETED_ATTEMPT_CLEANUP'] : [])]; record.recoveryInstruction = `${failure.message}${completedVerified ? ' The earlier verified attempt is complete. This blocked readback clears only its retained lock; resolve fresh authority for recovery.' : ''}${record.outcome === 'blocked' && measuredStableState ? ' Desired flag state is known but health is not verified. Independently authorize disable; no expansion evidence was issued.' : ''}${record.outcome === 'unknown_outcome' ? ` Reconcile exposure attempt ${prior?.record.attemptId ?? journal.attemptId}.` : ''}`;
   }
   let recordPath: string;
   try {

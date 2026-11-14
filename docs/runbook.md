@@ -229,6 +229,9 @@ The standalone hosted-check harness uses a POSIX shell and process groups; use
 the protected Ubuntu job or run it locally on macOS/Linux. Timeouts and
 cancellation stop the owned command group, including shell/npm descendants.
 Successful supported Railway read retries remain valid and count in the receipt.
+The protected check runs both rejection phases for a blocked-result fixture and
+a verified-result fixture with a simulated earlier configuration. That second
+fixture exercises drift cleanup without changing the hosted configuration.
 
 If lock removal fails after a result's saved, JSON output keeps `recordPath`,
 `attemptId`, and the measured `outcome`, plus a `cleanupWarning` with code
@@ -243,8 +246,18 @@ UUID still owns that environment's lock. The retained record's UUID must match
 its directory. A missing lock or a different owner rejects completed-attempt
 cleanup. Unknown attempts keep their existing read-only reconciliation path.
 
-For a previously verified result, reconciliation collects fresh provider and
-runtime evidence before clearing the original lock. For a completed unsuccessful
+New locks are directories under `work/locks/`; their single owner marker names
+the attempt through its hash. An empty outer directory means the environment's
+available. Retained plain-file locks still hold their original UUID. Count active
+owner markers or legacy owner files when checking unresolved locks, rather than
+counting outer directory entries. Use the upgraded operator consistently for a
+retained work directory.
+
+For a previously verified result, reconciliation attempts fresh provider and
+runtime verification. If the subject or health changed after that terminal
+result, it saves blocked readback with the failure reason and
+`COMPLETED_ATTEMPT_CLEANUP`, then clears only the original owned lock. Scope or
+initial readback failure retains the owner and retry command. For a completed unsuccessful
 result, it records provider readback and `COMPLETED_ATTEMPT_CLEANUP`, clears only
 the original owned lock, and stays blocked. That cleanup supplies no release
 eligibility; inspect the earlier failure and resolve fresh authority for recovery.

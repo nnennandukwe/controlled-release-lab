@@ -154,3 +154,19 @@ byte-for-byte from their emitted files. They record seven and six provider reads
 respectively, with zero mutation attempts, unchanged provider state and original
 record/checksum bytes, retained ownership after the error and successful blocked
 cleanup through the emitted CLI retry command.
+
+
+## Previously verified owners after drift
+
+Review96f2f612 found that a completed verified owner could remain locked if fresh
+verification later found drift or unhealthy behavior. Four new regressions failed
+before edits. After valid target/provider readback, these cases now save a blocked
+cleanup record with the observed failure and `COMPLETED_ATTEMPT_CLEANUP`, then
+release only the retained owner. Earlier verified bytes remain unchanged. Initial
+scope/readback failure still retains ownership; unknown effects keep their full
+reconciliation requirements.
+
+The protected opt-in step now runs both read-rejection phases for two terminal
+fixtures. The verified-drift fixture uses an explicitly synthetic historical
+configuration to exercise the new cleanup branch. The actual hosted configuration
+stays unchanged. Each receipt identifies its fixture and actual provider subject.

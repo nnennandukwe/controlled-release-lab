@@ -231,3 +231,27 @@ execution times and measured hashes. Exact-head external review and protected
 post-merge execution remain gates. The full local suite's result is recorded in
 the review/report receipt. Directory fsync and storage power loss aren't covered;
 operators must consistently use the upgraded binary for the retained work root.
+
+## Completed verified-result drift
+
+Review96f2f612 identified another terminal-owner state: a saved verified result
+with a retained lock, followed by external configuration, deployment, flag or
+runtime drift. Four CLI/API regressions reproduce blocked cleanup in this state.
+The previous verified record establishes that the earlier effect already ended.
+After authenticated target/provider readback, failed fresh verification must save
+a new blocked `COMPLETED_ATTEMPT_CLEANUP` record and release only that original
+owner. It must preserve the earlier result and withhold fresh eligibility.
+
+| Boundary | Failure | Required transition | Check |
+|---|---|---|---|
+| Scope or initial provider/flag read | Access failure | Retain original owner and retry command | Existing verified-owner CLI preflight cases |
+| Completed verified readback | Configuration/deployment/flag drift | Save current readback and blocked cleanup, release only original marker | New deployment/exposure drift cases |
+| Fresh runtime verification | Health or sample rejection | Preserve failure reason plus cleanup marker; blocked outcome | New deployment runtime case |
+| Save blocked cleanup | Persistence failure | Original owner retained | Existing save-before-release ordering and persistence faults |
+| Fresh verification succeeds | Healthy same subject | New verified evidence and original-owner release | Existing completed verified recovery cases |
+| Original outcome unknown | Any drift | Retain existing uncertainty and lock | Existing unknown-effect drift cases |
+
+The lock commit protocol stays unchanged. Empty outer directories represent
+available environments; README/runbook wording will identify active owner markers
+and retain the older plain-file recovery format. Historical closeout observations
+keep their original wording and state.

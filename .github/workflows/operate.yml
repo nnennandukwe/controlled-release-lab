@@ -271,6 +271,8 @@ jobs:
         run: |
           node --import tsx tools/hosted-operator-recovery.ts
           LAB_HOSTED_RECOVERY_FAILURE_PHASE=scope node --import tsx tools/hosted-operator-recovery.ts
+          LAB_HOSTED_RECOVERY_FIXTURE=verified-drift node --import tsx tools/hosted-operator-recovery.ts
+          LAB_HOSTED_RECOVERY_FIXTURE=verified-drift LAB_HOSTED_RECOVERY_FAILURE_PHASE=scope node --import tsx tools/hosted-operator-recovery.ts
         env:
           LAB_HOSTED_RECOVERY_CHECK: 'true'
           RAILWAY_PROJECT_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}

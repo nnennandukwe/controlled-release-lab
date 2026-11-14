@@ -33,7 +33,9 @@ export async function execute(request: Operation, hosting: Hosting, root: string
   // A rollback acknowledgement stays unknown. A blocked follow-up has a new
   // UUID and can't own the original mutation lock.
   const terminalCleanup = request.operation === 'reconcile' && prior!.outcome !== 'unknown_outcome' && prior!.outcome !== 'verified';
-  try { await hosting.assertScope(); }
+  const completedVerified = request.operation === 'reconcile' && prior!.outcome === 'verified';
+  let completedReadback = false;
+  try { await hosting.assertScope(request.target); }
   catch (error) {
     if (request.operation !== 'reconcile') throw error;
     throw reconciliationPreflightError(error, reconciliationCommand('reconcile', request.targetName, request.attempt!, root, request.configPath));
@@ -59,6 +61,8 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     if (permit) await permit.saveEvidence(`${journal.directory}/release`);
     const before = await hosting.snapshot();
     record.observations.push({ phase: 'before', snapshot: before });
+    completedReadback = completedVerified;
+    if (completedVerified && (before.sourceImage !== prior!.requestedImage || before.configurationFingerprint !== prior!.configurationFingerprint || before.active.length !== 1 || before.active[0]!.id !== prior!.deploymentId || before.latestId !== prior!.deploymentId)) throw new LabError('COMPLETED_SUBJECT_CHANGED', 'Provider state changed after the earlier verified result. Resolve fresh authority for recovery.');
     if (terminalCleanup) throw new LabError('COMPLETED_ATTEMPT_CLEANUP', 'The earlier attempt already has a terminal unsuccessful result. Its owned lock can be cleared after this read-only record is saved. Inspect the earlier result and resolve fresh authority for any recovery.');
     if (permit && before.configurationFingerprint !== permit.expectedConfiguration) throw new LabError('RELEASE_SUBJECT_MISMATCH', 'Current provider configuration differs from the approved request.');
     if (before.active.length > 1 || (before.latestId && before.active.length && !before.active.some(item => item.id === before.latestId))) throw new LabError('UNSTABLE_DEPLOYMENT', 'Wait for the active deployment to settle before operating.');
@@ -153,9 +157,9 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     record.recoveryInstruction = request.operation === 'reconcile' ? 'Desired provider state and live behavior observed; this does not prove which earlier request caused it.' : '';
   } catch (error) {
     const failure = error instanceof LabError ? error : new LabError('EXECUTION_ERROR', 'Execution or evidence persistence failed. Inspect the retained attempt files and reconcile any mutation.');
-    record.outcome = providerMutationAttempted && failure.outcome !== 'failed' ? 'unknown_outcome' : failure.outcome;
-    record.reasonCodes = [failure.code];
-    record.recoveryInstruction = `${failure.message}${failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' && (request.operation === 'reconcile' || record.outcome === 'unknown_outcome') ? ` Run ${reconciliationCommand('reconcile', request.targetName, request.operation === 'reconcile' ? request.attempt! : journal.attemptId, root, request.configPath)}.` : ''}`;
+    record.outcome = completedReadback ? 'blocked' : providerMutationAttempted && failure.outcome !== 'failed' ? 'unknown_outcome' : failure.outcome;
+    record.reasonCodes = [failure.code, ...(completedReadback && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' ? ['COMPLETED_ATTEMPT_CLEANUP'] : [])];
+    record.recoveryInstruction = `${failure.message}${completedReadback ? ' The earlier verified attempt is complete. This blocked readback clears only its retained lock; resolve fresh authority for recovery.' : ''}${!record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP') && (request.operation === 'reconcile' || record.outcome === 'unknown_outcome') ? ` Run ${reconciliationCommand('reconcile', request.targetName, request.operation === 'reconcile' ? request.attempt! : journal.attemptId, root, request.configPath)}.` : ''}`;
   }
   let recordPath: string;
   try {

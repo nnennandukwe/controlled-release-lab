@@ -128,7 +128,7 @@ node --import tsx tools/lab.ts doctor --target staging
 | `work/rehearsals/attempts/<uuid>/` | Labeled response-loss fixture and automated recovery assertions |
 | `work/flag-rehearsals/attempts/<uuid>/` | Labeled staging flag response-loss and read-only recovery assertions |
 | `work/exposure/attempts/<uuid>/` | Immutable flag intents, raw cohort samples, and checksummed exposure records |
-| `work/locks/*.lock` | Environment ownership retained after an uncertain mutation |
+| `work/locks/*.lock` | Active ownership: a nonempty owner directory, or a retained legacy owner file. An empty directory means the environment’s available. |
 | GitHub `build-record-*` artifact | Published digest, producer identity, and signed image provenance |
 | GitHub `lab-proof-*` artifact | Signed deployment or exposure evidence bound to the exact subject |
 | GitHub `lab-diagnostic-*` artifact | Signed unhealthy observation; authenticates failure evidence but cannot authorize expansion |

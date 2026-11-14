@@ -45,6 +45,8 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
   if (environment.LAB_HOSTED_RECOVERY_CHECK !== 'true' || environment.LAB_TARGET !== 'staging') throw new LabError('HOSTED_STAGING_OPT_IN_REQUIRED', 'Enable the hosted check explicitly for staging.');
   const failurePhase = environment.LAB_HOSTED_RECOVERY_FAILURE_PHASE ?? 'snapshot';
   if (failurePhase !== 'scope' && failurePhase !== 'snapshot') throw new LabError('HOSTED_CHECK_PHASE_INVALID', 'Choose scope or snapshot for the hosted read failure.');
+  const fixtureKind = environment.LAB_HOSTED_RECOVERY_FIXTURE ?? 'blocked';
+  if (fixtureKind !== 'blocked' && fixtureKind !== 'verified-drift') throw new LabError('HOSTED_CHECK_FIXTURE_INVALID', 'Choose blocked or verified-drift for the hosted fixture.');
   if (environment.GITHUB_ACTIONS === 'true') await requireProtectedEnvironment({ ...environment, LAB_GITHUB_ENVIRONMENT: 'staging' });
   const repository = fileURLToPath(new URL('../', import.meta.url));
   const operatorSourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim();
@@ -66,7 +68,7 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
   await writeFile(config, JSON.stringify({ staging: target }), { flag: 'wx', mode: 0o600 });
   const journal = new Journal(root);
   await journal.initialize(); await acquireLock(root, target, journal.attemptId);
-  const original: EvidenceRecord = { schemaVersion: 1, attemptId: journal.attemptId, operation: 'deploy', targetName: 'staging', target, requestedImage: before.sourceImage, requestedSourceSha: null, deploymentId: null, rollbackTarget: null, configurationFingerprint: before.configurationFingerprint, startedAt, finishedAt: startedAt, outcome: 'blocked', reasonCodes: ['TEACHING_FIXTURE_PRE_EFFECT_REJECTION'], recoveryInstruction: 'Teaching fixture: terminal rejection with interrupted owned-lock removal.', observations: [{ phase: 'actual-provider-before', snapshot: before }] };
+  const original: EvidenceRecord = { schemaVersion: 1, attemptId: journal.attemptId, operation: 'deploy', targetName: 'staging', target, requestedImage: before.sourceImage, requestedSourceSha: null, deploymentId: null, rollbackTarget: null, configurationFingerprint: fixtureKind === 'verified-drift' ? fingerprint({ teachingFixture: 'earlier verified configuration before simulated drift' }) : before.configurationFingerprint, startedAt, finishedAt: startedAt, outcome: fixtureKind === 'verified-drift' ? 'verified' : 'blocked', reasonCodes: [fixtureKind === 'verified-drift' ? 'TEACHING_FIXTURE_VERIFIED_RESULT_WITH_RETAINED_LOCK' : 'TEACHING_FIXTURE_PRE_EFFECT_REJECTION'], recoveryInstruction: 'Teaching fixture: synthetic terminal result with interrupted owned-lock removal.', observations: [{ phase: 'actual-provider-before', snapshot: before }] };
   const originalPath = await journal.finish(original);
   const retained = await Promise.all([originalPath, `${originalPath}.sha256`].map(async path => [path, await readFile(path)] as const));
   const log = join(directory, 'provider-reads.ndjson');
@@ -91,14 +93,14 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
     await loadRecord(failed.recordPath);
   } else if (failed.recordPath) throw new LabError('HOSTED_CHECK_FAILED', 'A rejected scope read must not claim a new saved record.');
   const recovered = await run('/bin/sh', ['-c', command], false);
-  if (recovered.outcome !== 'blocked' || recovered.reasonCodes.join() !== 'COMPLETED_ATTEMPT_CLEANUP' || !recovered.recordPath || await readLockOwner(root, target) !== undefined) throw new LabError('HOSTED_CHECK_FAILED', 'Read-only retry did not complete blocked owned-lock cleanup.');
+  if (recovered.outcome !== 'blocked' || recovered.reasonCodes.join() !== (fixtureKind === 'verified-drift' ? 'COMPLETED_SUBJECT_CHANGED,COMPLETED_ATTEMPT_CLEANUP' : 'COMPLETED_ATTEMPT_CLEANUP') || !recovered.recordPath || await readLockOwner(root, target) !== undefined) throw new LabError('HOSTED_CHECK_FAILED', 'Read-only retry did not complete blocked owned-lock cleanup.');
   await loadRecord(recovered.recordPath);
   for (const [path, bytes] of retained) if (!bytes.equals(await readFile(path))) throw new LabError('HOSTED_CHECK_FAILED', 'Original recovery evidence changed.');
   const events = (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as HostedReadEvent);
   checkHostedReadEvents(events, failurePhase);
   const after = await hosting.snapshot();
   if (fingerprint(before) !== fingerprint(after)) throw new LabError('HOSTED_CHECK_FAILED', 'Provider subject changed during the read-only recovery check.');
-  const receipt = { schemaVersion: 1, outcome: 'hosted_cleanup_verified', authorized: false, operatorSourceSha, failurePhase, startedAt, finishedAt: new Date().toISOString(), targetName: 'staging', target, before, after, fixture: { syntheticTerminalRecord: true, simulatedFailure: 'one invalid read-only GraphQL field sent to the actual Railway endpoint' }, originalAttemptId: journal.attemptId, originalRecordUnchanged: true, lockRetainedAfterFailure: true, lockReleased: true, providerMutations: 0, providerRequests: events.length + directProviderReads.length, directProviderReads, failedOutcome: failed.outcome, failedReasonCodes: failed.reasonCodes, failedRecordPath: failed.recordPath ?? null, recoveredRecordPath: recovered.recordPath, events, directory };
+  const receipt = { schemaVersion: 1, outcome: 'hosted_cleanup_verified', authorized: false, operatorSourceSha, failurePhase, fixtureKind, startedAt, finishedAt: new Date().toISOString(), targetName: 'staging', target, before, after, fixture: { syntheticTerminalRecord: true, priorOutcome: original.outcome, simulatedHistoricalConfiguration: fixtureKind === 'verified-drift', simulatedFailure: 'one invalid read-only GraphQL field sent to the actual Railway endpoint' }, originalAttemptId: journal.attemptId, originalRecordUnchanged: true, lockRetainedAfterFailure: true, lockReleased: true, providerMutations: 0, providerRequests: events.length + directProviderReads.length, directProviderReads, failedOutcome: failed.outcome, failedReasonCodes: failed.reasonCodes, failedRecordPath: failed.recordPath ?? null, recoveredRecordPath: recovered.recordPath, events, directory };
   await writeFile(join(directory, 'receipt.json'), `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
   // Publish the safe projection in the producer; downstream copies stay byte-exact.
   const { directory: _directory, failedRecordPath, recoveredRecordPath, ...publicFields } = receipt;

@@ -78,3 +78,9 @@ it.each([502, 503, 504])('preserves the adapter retry for an HTML HTTP %s respon
     expect(events).toMatchObject([{ status, errorCount: null }, { status: 200, errorCount: 0 }]);
   } finally { globalThis.fetch = nativeFetch; vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); }
 });
+
+it('rejects an unknown terminal fixture before any provider request', async () => {
+  const transport = vi.spyOn(globalThis, 'fetch');
+  await expect(hostedOperatorRecovery({ LAB_HOSTED_RECOVERY_CHECK: 'true', LAB_TARGET: 'staging', LAB_HOSTED_RECOVERY_FIXTURE: 'unknown' })).rejects.toMatchObject({ code: 'HOSTED_CHECK_FIXTURE_INVALID' });
+  expect(transport).not.toHaveBeenCalled();
+});
