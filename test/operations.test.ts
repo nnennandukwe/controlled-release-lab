@@ -367,6 +367,39 @@ it.each(['configuration', 'runtime'])('clears a previously verified owner after 
   expect(hosting.updateImage).toHaveBeenCalledOnce(); expect(hosting.deploy).toHaveBeenCalledOnce();
 });
 
+it.each(['provider', 'request', 'intent', 'journal'])('retains the verified owner through a late %s failure and retry', async fault => {
+  const directory = await root(), hosting = host(), nativeUnlink = fs.unlink;
+  const cleanup = vi.spyOn(fs, 'unlink').mockImplementation(async path => {
+    if (String(path).endsWith('.lock')) throw Object.assign(new Error('fixture retained terminal lock'), { code: 'EACCES' });
+    return nativeUnlink(path);
+  });
+  const original = await execute(request, hosting, directory, traffic);
+  cleanup.mockRestore(); expect(original.outcome).toBe('verified');
+  const bytes = await readFile(original.recordPath), deployment = hosting.deployment, nativeOpen = fs.open;
+  let restore = () => {};
+  if (fault === 'provider') {
+    hosting.deployment = vi.fn(async () => { throw new LabError('PROVIDER_TRANSPORT', 'fixture late provider read failed'); });
+    restore = () => { hosting.deployment = deployment; };
+  } else if (fault === 'intent' || fault === 'journal') {
+    const failure = vi.spyOn(fs, 'open').mockImplementation(async (...args) => {
+      if (String(args[0]).endsWith(fault === 'intent' ? '-intent.json' : '-request.json')) throw new Error('fixture late journal failure');
+      return nativeOpen(...args);
+    });
+    restore = () => failure.mockRestore();
+  }
+  const missingResponse: typeof fetch = async () => { throw new Error('fixture missing response'); };
+  const retry = { ...request, operation: 'reconcile' as const, attempt: original.attemptId! };
+  const failed = await execute(retry, hosting, directory, fault === 'request' ? missingResponse : traffic);
+  restore();
+  expect(failed.outcome).toBe('unknown_outcome'); expect(failed.reasonCodes).not.toContain('COMPLETED_ATTEMPT_CLEANUP');
+  expect(failed.recoveryInstruction).toContain(`--attempt ${original.attemptId}`);
+  expect(await readLockOwner(directory, target)).toBe(original.attemptId); expect(await readFile(original.recordPath)).toEqual(bytes);
+  const recovered = await execute(retry, hosting, directory, traffic);
+  expect(recovered.outcome).toBe('verified'); expect(await readLockOwner(directory, target)).toBeUndefined();
+  expect(await readFile(original.recordPath)).toEqual(bytes);
+  expect(hosting.updateImage).toHaveBeenCalledOnce(); expect(hosting.deploy).toHaveBeenCalledOnce();
+});
+
 it.each([false, true])('reports target mismatch before reading an unrelated lock (malformed foreign lock: %s)', async malformed => {
   const directory = await root(), hosting = host(), nativeUnlink = fs.unlink;
   hosting.snapshot = vi.fn(async () => ({ sourceImage: null, active: [], latestId: null, configurationFingerprint: 'changed-before-effect' }));

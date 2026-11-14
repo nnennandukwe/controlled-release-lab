@@ -375,3 +375,24 @@ helpers. Move the unchanged Railway read-only transport preload into tools/,
 update its harness path and existing retry tests, and label its runtime role.
 Existing hosted cases will exercise the moved preload with actual staging reads;
 CI and local retry cases verify module resolution. Historical receipts stay intact.
+
+## Late verification uncertainty
+
+Full review900abbe4 identifies a wider cleanup catch after initial readback.
+A retained verified owner may be released only after fresh successful verification
+or an observed subject/health failure with usable response evidence. Provider or
+flag read errors, absent request responses and journal I/O errors retain the old
+owner and an original-UUID retry command. Earlier records remain immutable.
+
+| Fault after initial readback | Required saved result | Original ownership | Retry |
+|---|---|---|---|
+| Deployment/provider or flag read fails | Unknown verification | Retained | Same UUID, read-only |
+| Request transport supplies no response | Unknown verification | Retained | Same UUID, read-only |
+| Intent/request/proof journal append fails | Unknown verification | Retained | Same UUID after I/O recovery |
+| Fresh subject differs | Blocked cleanup | Clear only after saved record | Fresh authority |
+| Complete window returns unhealthy responses | Blocked cleanup | Clear only after saved record | Fresh authority |
+
+Regressions exercise real execution entry points and filesystem journals with
+labeled local provider/HTTP seams. They verify the failure and subsequent retry,
+original bytes/owner, diagnostics and unchanged mutation counts. Existing hosted
+cases separately cover actual Railway scope/snapshot HTTP400 recovery.

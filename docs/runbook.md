@@ -256,10 +256,13 @@ counting outer directory entries. Use the upgraded operator consistently for a
 retained work directory.
 
 For a previously verified result, reconciliation attempts fresh provider and
-runtime verification. If the subject or health changed after that terminal
-result, it saves blocked readback with the failure reason and
-`COMPLETED_ATTEMPT_CLEANUP`, then clears only the original owned lock. Scope or
-initial readback failure retains the owner and retry command. For a completed unsuccessful
+runtime verification. If fresh readback shows subject drift or a complete window
+returns unhealthy HTTP responses, it saves blocked readback with the failure reason
+and `COMPLETED_ATTEMPT_CLEANUP`, then clears only the original owned lock.
+Provider/flag read errors, missing responses and evidence-write failures preserve
+the original owner and its retry command. Their new record keeps verification
+unknown so the same UUID can retry after the dependency recovers. Actual flag
+readback is journaled before a mismatch can finish cleanup. For a completed unsuccessful
 result, it records provider readback and `COMPLETED_ATTEMPT_CLEANUP`, clears only
 the original owned lock, and stays blocked. That cleanup supplies no release
 eligibility; inspect the earlier failure and resolve fresh authority for recovery.

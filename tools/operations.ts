@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
-import { measureFeatureProof, checkFeatureProof } from './feature-proof.js';
+import { measureFeatureProof, checkFeatureProof, hasObservedFeatureFailure } from './feature-proof.js';
 import type { FlagProvider } from './launchdarkly.js';
 import type { Hosting, Snapshot } from './railway.js';
 import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, loadAttempt, loadRecord, lockCleanupWarning, ownsLock, reconciliationCommand, reconciliationPreflightError, releaseReconciledLock, targetSchema, type EvidenceRecord, type Target } from './evidence.js';
@@ -34,7 +34,7 @@ export async function execute(request: Operation, hosting: Hosting, root: string
   // UUID and can't own the original mutation lock.
   const terminalCleanup = request.operation === 'reconcile' && prior!.outcome !== 'unknown_outcome' && prior!.outcome !== 'verified';
   const completedVerified = request.operation === 'reconcile' && prior!.outcome === 'verified';
-  let completedReadback = false;
+  let completedReadback = false, observedHealthFailure = false;
   try { await hosting.assertScope(request.target); }
   catch (error) {
     if (request.operation !== 'reconcile') throw error;
@@ -136,6 +136,7 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     const after = await hosting.snapshot();
     record.observations.push({ phase: 'after', snapshot: after });
     if (fingerprint(after) !== fingerprint(serving)) throw new LabError('STATE_CHANGED_DURING_OBSERVATION', 'The deployment or configuration changed during observation. Collect a new stable window.');
+    observedHealthFailure = measured.outcome === 'failed' && measured.requests === measured.expectedRequests && measured.samples.every(sample => sample.status !== null);
     if (measured.outcome !== 'verified') throw new LabError(measured.reasonCodes.join(','), 'The observation failed or was incomplete. Inspect raw requests before repeating the window.', measured.outcome as 'failed' | 'blocked');
     if (measured.samples.some(sample => sample.deploymentId !== record.deploymentId || sample.environment !== request.targetName || (record.requestedSourceSha && sample.sourceSha !== record.requestedSourceSha))) throw new LabError('LIVE_IDENTITY_MISMATCH', 'Live responses do not match the selected source, environment, and deployment. Check the target URL and active service.');
     if (!record.requestedSourceSha) {
@@ -151,15 +152,17 @@ export async function execute(request: Operation, hosting: Hosting, root: string
       const proof = await measureFeatureProof(hosting, flags, subject, measured.p95Ms!, sample => journal.append('feature-request', sample), transport, null);
       record.observations.push({ phase: 'feature-proof', proof });
       if (proof.before.digest !== flagBefore!.digest) throw new LabError('FLAG_STATE_CHANGED', 'Flag state changed during the baseline window.');
+      observedHealthFailure = hasObservedFeatureFailure(proof, subject);
       checkFeatureProof(proof, subject, request.operation === 'deploy' && request.targetName === 'live' ? 'off' : 'any');
     }
     record.outcome = 'verified';
     record.recoveryInstruction = request.operation === 'reconcile' ? 'Desired provider state and live behavior observed; this does not prove which earlier request caused it.' : '';
   } catch (error) {
     const failure = error instanceof LabError ? error : new LabError('EXECUTION_ERROR', 'Execution or evidence persistence failed. Inspect the retained attempt files and reconcile any mutation.');
-    record.outcome = completedReadback ? 'blocked' : providerMutationAttempted && failure.outcome !== 'failed' ? 'unknown_outcome' : failure.outcome;
-    record.reasonCodes = [failure.code, ...(completedReadback && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' ? ['COMPLETED_ATTEMPT_CLEANUP'] : [])];
-    record.recoveryInstruction = `${failure.message}${completedReadback ? ' The earlier verified attempt is complete. This blocked readback clears only its retained lock; resolve fresh authority for recovery.' : ''}${!record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP') && (request.operation === 'reconcile' || record.outcome === 'unknown_outcome') ? ` Run ${reconciliationCommand('reconcile', request.targetName, request.operation === 'reconcile' ? request.attempt! : journal.attemptId, root, request.configPath, request.target, request.recoveryRepository)}.` : ''}`;
+    const completedCleanup = completedReadback && (observedHealthFailure || ['COMPLETED_SUBJECT_CHANGED', 'DEPLOYMENT_FAILED', 'DEPLOYED_IMAGE_MISMATCH', 'CONFIGURED_IMAGE_MISMATCH', 'CONFIGURATION_MISMATCH', 'STATE_CHANGED_DURING_OBSERVATION', 'LIVE_IDENTITY_MISMATCH', 'FLAG_STATE_CHANGED'].includes(failure.code));
+    record.outcome = completedCleanup ? 'blocked' : completedVerified || providerMutationAttempted && failure.outcome !== 'failed' ? 'unknown_outcome' : failure.outcome;
+    record.reasonCodes = [failure.code, ...(completedCleanup ? ['COMPLETED_ATTEMPT_CLEANUP'] : [])];
+    record.recoveryInstruction = `${failure.message}${completedCleanup ? ' The earlier verified attempt is complete. This blocked readback clears only its retained lock; resolve fresh authority for recovery.' : ''}${!record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP') && (request.operation === 'reconcile' || record.outcome === 'unknown_outcome') ? ` Run ${reconciliationCommand('reconcile', request.targetName, request.operation === 'reconcile' ? request.attempt! : journal.attemptId, root, request.configPath, request.target, request.recoveryRepository)}.` : ''}`;
   }
   let recordPath: string;
   try {

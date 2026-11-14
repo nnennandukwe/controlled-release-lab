@@ -424,6 +424,63 @@ it.each(['-intent.json','-before-provider.json','-before-flag.json'])('retains a
  expect(recovered.outcome).toBe('verified');expect(await readLockOwner(work,scenario.request.target)).toBeUndefined();expect(scenario.patches()).toBe(1);
 },30000);
 
+it.each(['provider','flag','request','journal','flag-journal','proof-journal'])('retains the verified exposure owner through a late %s failure and retry',async fault=>{
+ const scenario=await fixture(),work=join(scenario.root,'work'),nativeUnlink=fs.unlink;
+ const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
+  if(String(path).endsWith('.lock'))throw Object.assign(new Error('fixture retained terminal lock'),{code:'EACCES'});
+  return nativeUnlink(path);
+ });
+ const original=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
+ cleanup.mockRestore();expect(original.outcome).toBe('verified');
+ const bytes=await readFile(original.recordPath),nativeOpen=fs.open;
+ let restore=()=>{};
+ if(fault==='provider'){
+  const before=await scenario.hosting.snapshot();
+  const failure=vi.spyOn(scenario.hosting,'snapshot').mockResolvedValueOnce(before).mockRejectedValueOnce(new LabError('PROVIDER_TRANSPORT','fixture late provider read failed'));
+  restore=()=>failure.mockRestore();
+ }else if(fault==='flag'){
+  const before=await scenario.flags.snapshot();
+  const failure=vi.spyOn(scenario.flags,'snapshot').mockResolvedValueOnce(before).mockRejectedValueOnce(new LabError('FLAG_HTTP','fixture late flag read failed'));
+  restore=()=>failure.mockRestore();
+ }else if(fault==='journal'||fault==='flag-journal'||fault==='proof-journal'){
+  const failure=vi.spyOn(fs,'open').mockImplementation(async(...args)=>{
+   const phase=fault==='journal'?'request':fault==='flag-journal'?'actual-flag':'feature-proof';
+   if(new RegExp(`/[0-9]{4}-${phase}\\.json$`).test(String(args[0])))throw new Error('fixture late journal failure');
+   return nativeOpen(...args);
+  });
+  restore=()=>failure.mockRestore();
+ }
+ const missingResponse:typeof fetch=async()=>{throw new Error('fixture missing response');};
+ const retry={operation:'reconcile-exposure' as const,targetName:'staging' as const,attempt:original.attemptId!};
+ const failed=await executeExposure(retry,scenario.hosting,scenario.flags,work,fault==='request'?missingResponse:scenario.transport);
+ restore();
+ expect(failed.outcome).toBe('unknown_outcome');expect(failed.reasonCodes).not.toContain('COMPLETED_ATTEMPT_CLEANUP');
+ expect(failed.recoveryInstruction).toContain(`--attempt ${original.attemptId}`);
+ expect(await readLockOwner(work,scenario.request.target)).toBe(original.attemptId);expect(await readFile(original.recordPath)).toEqual(bytes);
+ expect((await loadExposureRecord(failed.recordPath)).featureProof).toBeNull();
+ const recovered=await executeExposure(retry,scenario.hosting,scenario.flags,work,scenario.transport);
+ expect(recovered.outcome).toBe('verified');expect(await readLockOwner(work,scenario.request.target)).toBeUndefined();
+ expect(await readFile(original.recordPath)).toEqual(bytes);expect(scenario.patches()).toBe(1);
+},30000);
+
+it('clears a verified exposure owner after a complete unhealthy response window',async()=>{
+ const scenario=await fixture(),work=join(scenario.root,'work'),nativeUnlink=fs.unlink;
+ const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
+  if(String(path).endsWith('.lock'))throw Object.assign(new Error('fixture retained terminal lock'),{code:'EACCES'});
+  return nativeUnlink(path);
+ });
+ const original=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
+ cleanup.mockRestore();expect(original.outcome).toBe('verified');
+ const unhealthy:typeof fetch=async(input,options)=>{
+  const response=await scenario.transport(input,options);
+  return String(input).startsWith(scenario.request.target.url)?Response.json({...await response.json(),results:[{id:'wrong-result'}]}):response;
+ };
+ const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,unhealthy);
+ expect(recovered.outcome).toBe('blocked');expect(recovered.reasonCodes).toContain('COMPLETED_ATTEMPT_CLEANUP');
+ expect(await readLockOwner(work,scenario.request.target)).toBeUndefined();expect((await loadExposureRecord(recovered.recordPath)).featureProof).toBeNull();
+ expect(scenario.patches()).toBe(1);
+},30000);
+
 it.each(['local','workflow'])('keeps the original exposure command after retained evidence verification fails in %s recovery',async context=>{
  const scenario=await fixture({conflict:true}),work=join(scenario.root,'work'),nativeUnlink=fs.unlink;
  const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
