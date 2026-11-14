@@ -147,7 +147,7 @@ async function loadExposureAttempt(root: string, attempt: string) {
   assertAttemptIdentity(record.attemptId, attempt);
   return { directory, record };
 }
-export type ExposureOperation = { operation: 'expose' | 'disable' | 'observe-exposure' | 'reconcile-exposure'; targetName: 'staging' | 'live'; releaseDir?: string; stage?: Exclude<ExposureStage, 'off'>; apply?: boolean; attempt?: string; rehearseResponseLoss?: boolean };
+export type ExposureOperation = { operation: 'expose' | 'disable' | 'observe-exposure' | 'reconcile-exposure'; targetName: 'staging' | 'live'; recoveryRepository?: string; releaseDir?: string; stage?: Exclude<ExposureStage, 'off'>; apply?: boolean; attempt?: string; rehearseResponseLoss?: boolean };
 export async function executeExposure(input: ExposureOperation, hosting: Hosting, flags: FlagProvider, root: string, transport: typeof fetch = fetch) {
   const mutating = input.operation === 'expose' || input.operation === 'disable';
   if (input.apply && !mutating) throw new LabError('INVALID_EXPOSURE_ARGUMENT', 'Observation and reconciliation are read-only.');
@@ -173,7 +173,7 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
     before = await flags.snapshot();
   } catch (error) {
     if (!prior) throw error;
-    throw reconciliationPreflightError(error, reconciliationCommand('reconcile-exposure', input.targetName, prior.record.attemptId, root, undefined, request.target));
+    throw reconciliationPreflightError(error, reconciliationCommand('reconcile-exposure', input.targetName, prior.record.attemptId, root, undefined, request.target, input.recoveryRepository));
   }
   if (!prior && before.digest !== request.before.digest) throw new LabError('FLAG_STATE_CHANGED', 'The flag changed since request resolution. No PATCH was sent.');
   if (mutating && !input.apply) return { outcome: 'preview', attemptId: undefined, recoveryInstruction: undefined, cleanupWarning: undefined, reasonCodes: ['APPLY_REQUIRED'], target: request.targetName, stage: request.stage, requestDigest: verified.requestDigest, recordPath: '' };
@@ -230,7 +230,7 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
     if (prior && (record.outcome === 'verified' || record.outcome === 'blocked' && measuredStableState || record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP'))) await releaseReconciledLock(root, request.target, prior.record.attemptId);
     if (release && (!effectAttempted || record.outcome !== 'unknown_outcome')) await release();
   } catch (error) {
-    cleanupWarning = lockCleanupWarning(error, recordPath, reconciliationCommand('reconcile-exposure', request.targetName, prior?.record.attemptId ?? journal.attemptId, root, undefined, request.target));
+    cleanupWarning = lockCleanupWarning(error, recordPath, reconciliationCommand('reconcile-exposure', request.targetName, prior?.record.attemptId ?? journal.attemptId, root, undefined, request.target, input.recoveryRepository));
   }
   return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, attemptId: journal.attemptId, recordPath, cleanupWarning };
 }

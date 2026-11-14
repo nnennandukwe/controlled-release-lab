@@ -11,7 +11,7 @@ import { executeExposure, verifyExposureObservation, type ExposureOperation } fr
 import { rehearseExposureRecovery } from './exposure-rehearsal.js';
 import { LaunchDarkly, enabledStageSchema } from './launchdarkly.js';
 import { Railway } from './railway.js';
-import { checkRequest, releaseRequestSchema, verifyRelease } from './promotion.js';
+import { checkRequest, policy, releaseRequestSchema, verifyRelease } from './promotion.js';
 import { fingerprint } from './evidence.js';
 
 export const help = `Controlled Release Lab - authenticated promotion and recovery
@@ -125,8 +125,10 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       return 0;
     }
     const flags = new LaunchDarkly(environment.LD_READ_TOKEN ?? '', isExposure && values.apply ? environment.LD_MANAGEMENT_TOKEN : undefined, targetName);
+    const recoveryRepository = environment.GITHUB_ACTIONS === 'true' && environment.GITHUB_REPOSITORY === policy.repository && environment.GITHUB_REF === 'refs/heads/main' && environment.GITHUB_WORKFLOW_REF === `${policy.repository}/.github/workflows/operate.yml@refs/heads/main` ? policy.repository : undefined;
     if (isExposure) {
       const exposure: ExposureOperation = { operation: operation as ExposureOperation['operation'], targetName, apply: values.apply ?? false, rehearseResponseLoss: values['rehearse-response-loss'] ?? false };
+      if (recoveryRepository) exposure.recoveryRepository = recoveryRepository;
       if (values['release-dir']) exposure.releaseDir = values['release-dir'];
       if (values.attempt) exposure.attempt = values.attempt;
       if (operation === 'expose') exposure.stage = enabledStageSchema.parse(values.stage);
@@ -135,6 +137,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       return result.cleanupWarning ? 2 : result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
     }
     const request: Operation = { operation: (operation === 'rehearse-recovery' ? 'deploy' : operation) as Operation['operation'], purpose: operation === 'rehearse-recovery' ? 'recovery-rehearsal' : 'release', targetName, target, apply: values.apply ?? false };
+    if (recoveryRepository) request.recoveryRepository = recoveryRepository;
     if (values.config !== undefined) request.configPath = resolve(values.config);
     if (values['release-dir'] !== undefined) request.releaseDir = values['release-dir'];
     if (request.releaseDir && operation === 'observe') {

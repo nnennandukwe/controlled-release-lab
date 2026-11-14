@@ -47,7 +47,7 @@ export async function rehearseRecovery(request: Operation, hosting: Hosting, roo
     await delay(2000);
   }
   const callsBeforeRecovery = fingerprint(calls);
-  const recovered = await execute({ operation: 'reconcile', targetName: 'staging', target: request.target, attempt: original.attemptId, durationSeconds: 60, maxDurationSeconds: 90, rate: 2, maxRequests: 120 }, wrapped, root, transport, flags);
+  const recovered = await execute({ operation: 'reconcile', targetName: 'staging', target: request.target, attempt: original.attemptId, ...(request.recoveryRepository === undefined ? {} : { recoveryRepository: request.recoveryRepository }), ...(request.configPath === undefined ? {} : { configPath: request.configPath }), durationSeconds: 60, maxDurationSeconds: 90, rate: 2, maxRequests: 120 }, wrapped, root, transport, flags);
   const originalRecordUnchanged = originalBytes.equals(await readFile(original.recordPath));
   const lockReleased = await readLockOwner(root, request.target) === undefined;
   if (!originalRecordUnchanged || fingerprint(calls) !== callsBeforeRecovery || calls.updateCalls !== 1 || calls.deployCalls !== 1 || calls.rollbackCalls !== 0) throw new LabError('REHEARSAL_STATE_FAILED', 'Recovery changed prior evidence or repeated a provider mutation.');

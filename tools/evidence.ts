@@ -95,7 +95,12 @@ export async function ownsLock(root: string, target: Target, attemptId: string) 
   return await readLockOwner(root, target) === attemptId;
 }
 
-export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposure', target: 'staging' | 'live', attempt: string, root: string, configPath: string | undefined, targetConfig: Target) {
+export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposure', target: 'staging' | 'live', attempt: string, root: string, configPath: string | undefined, targetConfig: Target, recoveryRepository?: string) {
+  if (recoveryRepository !== undefined) {
+    z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/).parse(recoveryRepository);
+    z.string().uuid().parse(attempt);
+    return `gh workflow run operate.yml --repo ${recoveryRepository} --ref main -f operation=${operation} -f target=${target} -f attempt=${attempt} -f apply=false`;
+  }
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
   const selection = configPath === undefined ? `LAB_CONFIG_JSON=${quote(JSON.stringify({ [target]: targetSchema.parse(targetConfig) }))} ` : '';
   return `${selection}npm run lab -- ${operation} --target ${target} --attempt ${attempt} --work-dir ${quote(resolve(root))}${configPath === undefined ? '' : ` --config ${quote(resolve(configPath))}`}`;

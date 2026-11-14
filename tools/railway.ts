@@ -40,8 +40,8 @@ export class Railway {
           method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
           headers: { 'Content-Type': 'application/json', 'Project-Access-Token': this.token }, body: JSON.stringify({ query, variables }),
         });
-      } catch {
-        throw new LabError('PROVIDER_TRANSPORT', 'Railway request did not complete. Reconcile before repeating any mutation.', mutation ? 'unknown_outcome' : 'blocked');
+      } catch (error) {
+        throw new LabError('PROVIDER_TRANSPORT', 'Railway request did not complete. Reconcile before repeating any mutation.', mutation ? 'unknown_outcome' : 'blocked', { cause: error });
       }
       if (!mutation && [429, 502, 503, 504].includes(response.status) && attempt < 2) {
         const seconds = Number(response.headers.get('retry-after') ?? '1');

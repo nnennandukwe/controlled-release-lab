@@ -319,3 +319,26 @@ behavior. Eight real CLI cases cover file/environment selection, scope/snapshot
 failure and completed/verified owners; environment retries drop the original map
 before executing the emitted command. The target schema excludes credential,
 path, query and fragment fields from the configured origin.
+
+## Hosted recovery guidance and bounded failure diagnostics
+
+Review285897a3 identified that an Actions runner's absolute work path isn't a
+local recovery path after the runner ends. The CLI will attach a workflow recovery
+context only for this repository's main Operate lab invocation. Its read-only
+hint dispatches the same workflow on main with original operation/target/attempt
+and apply=false. Local hints retain their validated map and absolute paths. Two
+CLI workflow cases execute the emitted command against an owned gh capture shim,
+feed its inputs through the real workflowArguments consumer, restore a separate
+state copy and perform read-only recovery there. No Actions run is dispatched by
+unit tests; existing protection/restoration tests retain their scope.
+
+Review021005ef identified missing unexpected-error details. Failure output will
+retain bounded error types, codes, cause codes and a source file/line, without
+printing arbitrary exception messages or stacks. Provider transport errors retain
+their cause in memory for that formatter. A real entry-point missing-git case
+reproduces lost ENOENT, and a provider-cause test checks useful diagnostics without
+exposing an error's synthetic secret text.
+
+Review8ddfb59b requires the corrected producer receipts to be inspectable. The
+latest clean-source public outputs will be copied unchanged and linked, preserving
+earlier confounded observations and their documented limits.

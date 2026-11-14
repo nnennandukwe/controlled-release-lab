@@ -1,9 +1,9 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { assertOperatorSource, checkHostedReadEvents, hostedOperatorRecovery, type HostedReadEvent } from '../tools/hosted-operator-recovery.js';
+import { assertOperatorSource, checkHostedReadEvents, hostedFailure, hostedOperatorRecovery, type HostedReadEvent } from '../tools/hosted-operator-recovery.js';
 import { Railway } from '../tools/railway.js';
 import policy from '../config/release-policy.json' with { type: 'json' };
 import { resolveRelease } from '../tools/release-workflow.js';
@@ -109,4 +109,22 @@ it('rejects a clean but changed commit at the final source check', async () => {
     await writeFile(join(fixture.root, 'operator.ts'), 'export const fixture = false;\n'); fixture.git('add', 'operator.ts'); fixture.git('commit', '--quiet', '-m', 'Changed fixture');
     expect(() => assertOperatorSource(fixture.root, fixture.source)).toThrow(expect.objectContaining({ code: 'OPERATOR_SOURCE_CHANGED' }));
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+it('reports a missing-git failure from the real hosted entry point', () => {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', 'tools/hosted-operator-recovery.ts'], { cwd: process.cwd(), encoding: 'utf8', env: { PATH: '/controlled-release-fixture-missing-path', LAB_HOSTED_RECOVERY_CHECK: 'true', LAB_TARGET: 'staging', RAILWAY_PROJECT_TOKEN: 'synthetic-fixture-token' } });
+  expect(result.status).toBe(1);
+  const failure = JSON.parse(result.stderr.trim().split('\n').at(-1)!);
+  expect(failure).toMatchObject({ code: 'HOSTED_UNEXPECTED_FAILURE', causeCodes: ['ENOENT'], source: expect.stringContaining('tools/hosted-operator-recovery.ts:') });
+});
+
+it('reports provider cause codes without printing untrusted exception text', async () => {
+  const secret = 'synthetic-secret-that-must-stay-out-of-diagnostics';
+  const cause = Object.assign(new Error(secret), { code: 'ECONNRESET' });
+  const transport: typeof fetch = async () => { throw cause; };
+  let failure: unknown;
+  try { await new Railway('synthetic-fixture-token', policy.targets.staging, transport).assertScope(); } catch (error) { failure = error; }
+  const report = hostedFailure(failure);
+  expect(report.causeCodes).toEqual(['PROVIDER_TRANSPORT', 'ECONNRESET']);
+  expect(JSON.stringify(report)).not.toContain(secret);
 });

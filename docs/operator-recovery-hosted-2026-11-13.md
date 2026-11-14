@@ -1,5 +1,12 @@
 # Hosted staging operator recovery check
 
+The corrected configuration-only fixtures are available as producer-emitted
+[snapshot](evidence/operator-recovery-2026-11-13-isolated-snapshot.json) and
+[scope](evidence/operator-recovery-2026-11-13-isolated-scope.json) receipts from
+source `81f828d7a0f4d28fad8cffe5ad9eeffd703ac26b`. Both include retained deployment,
+image and configuration values, with byte-exact copies and measured hashes. The
+older executions below preserve their original observations and coverage limits.
+
 The completed-owner recovery check passed against Railway staging on November 13,
 2026, from 14:50:59 to 14:51:01 Pacific. The [receipt](evidence/operator-recovery-2026-11-13-premerge.json)
 binds the execution to operator source `7f2241305e40eb54411ad6322d82ee6470833ce6`.

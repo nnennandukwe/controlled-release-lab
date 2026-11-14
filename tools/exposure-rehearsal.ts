@@ -29,7 +29,7 @@ export async function rehearseExposureRecovery(input: ExposureOperation, hosting
   if (originalRecord.acknowledged || !originalRecord.submitted || await readLockOwner(root, target) !== original.attemptId || !intentFiles.some(name => name.endsWith('-intent.json'))) throw new LabError('REHEARSAL_STATE_FAILED', 'The uncertain flag attempt must preserve its intent and lock without adopting the discarded response.', 'unknown_outcome');
   await fixture.append('unknown-outcome-preserved', { originalAttemptId: original.attemptId, originalRecordDigest: fingerprint(originalBytes.toString()), updateCalls });
   // No hidden provider response is passed into recovery, and no write is allowed.
-  const recovered = await executeExposure({ operation: 'reconcile-exposure', targetName: 'staging', attempt: original.attemptId }, hosting, wrapped, root, transport);
+  const recovered = await executeExposure({ operation: 'reconcile-exposure', targetName: 'staging', attempt: original.attemptId, ...(input.recoveryRepository === undefined ? {} : { recoveryRepository: input.recoveryRepository }) }, hosting, wrapped, root, transport);
   const originalRecordUnchanged = originalBytes.equals(await readFile(original.recordPath));
   const lockReleased = await readLockOwner(root, target) === undefined;
   if (!originalRecordUnchanged || updateCalls !== 1 || (recovered.outcome === 'verified' && !lockReleased)) throw new LabError('REHEARSAL_STATE_FAILED', 'Recovery changed history, repeated a flag effect, or left a verified operation locked.', 'unknown_outcome');

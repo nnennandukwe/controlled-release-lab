@@ -8,6 +8,21 @@ import { Railway } from './railway.js';
 import { requireProtectedEnvironment } from './workflow-guard.js';
 import policy from '../config/release-policy.json' with { type: 'json' };
 
+export function hostedFailure(error: unknown) {
+  const safeCode = (value: unknown) => typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(value) ? value : 'UNKNOWN_ERROR';
+  const names = new Set(['Error', 'TypeError', 'SyntaxError', 'RangeError', 'ZodError', 'AggregateError', 'AbortError', 'TimeoutError']);
+  const errorType = error instanceof LabError ? 'LabError' : error instanceof Error && names.has(error.name) ? error.name : 'UnknownError';
+  const causeCodes: string[] = [];
+  let cause = error;
+  for (let depth = 0; cause && typeof cause === 'object' && depth < 4; depth++) {
+    if ('code' in cause) causeCodes.push(safeCode(cause.code));
+    cause = 'cause' in cause ? cause.cause : undefined;
+  }
+  const source = error instanceof Error ? error.stack?.match(/\/(tools\/[a-z0-9-]+\.ts:\d+:\d+)/)?.[1] ?? null : null;
+  return { outcome: 'failed', code: error instanceof LabError ? safeCode(error.code) : 'HOSTED_UNEXPECTED_FAILURE', errorType, causeCodes, source,
+    recoveryInstruction: error instanceof LabError ? error.message : 'Inspect the reported source and required tools, plus retained stdout/stderr and attempt journals.' };
+}
+
 export function assertOperatorSource(repository: string, expectedSha?: string) {
   const source = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim();
   const changes = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repository, encoding: 'utf8' });
@@ -125,5 +140,5 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try { process.stdout.write(`${JSON.stringify(await hostedOperatorRecovery())}\n`); }
-  catch (error) { process.stderr.write(`${error instanceof LabError ? error.message : 'Hosted check failed; inspect retained evidence and staging access.'}\n`); process.exitCode = 1; }
+  catch (error) { process.stderr.write(`${JSON.stringify(hostedFailure(error))}\n`); process.exitCode = 1; }
 }

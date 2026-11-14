@@ -236,8 +236,10 @@ fixture exercises drift cleanup without changing the hosted configuration.
 If lock removal fails after a result's saved, JSON output keeps `recordPath`,
 `attemptId`, and the measured `outcome`, plus a `cleanupWarning` with code
 `LOCK_CLEANUP_REQUIRED` and the filesystem `causeCode` (for example `EACCES`).
-The CLI exits 2. Follow that warning's command with the
-same work directory; don't repeat the mutation or delete the lock manually.
+The CLI exits 2. Local warnings use the same work directory. Operate lab warnings
+provide a fresh read-only workflow dispatch on main, with the original target and
+attempt. That workflow restores the retained state artifact and still requires
+normal environment approval. Don't repeat the mutation or delete its lock manually.
 Both sealing entry points emit `sign=false` while a cleanup warning remains;
 the saved measurements stay in the state artifact until recovery completes.
 
@@ -807,3 +809,9 @@ assignment containing only its validated target IDs and origin. It preserves
 selection when copied to another shell or used after the original environment
 map's gone. Explicit file paths remain absolute. Provide credentials through the
 ordinary secret store. An empty `--config` argument fails before provider access.
+
+
+Unexpected hosted-check failures report bounded error types, codes, cause codes
+and a source file/line in stderr. Arbitrary exception messages and full stacks
+aren't printed. Inspect those diagnostics alongside retained stdout/stderr and
+attempt journals; provider transport causes stay available for the bounded report.
