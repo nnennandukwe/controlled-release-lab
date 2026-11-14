@@ -396,3 +396,10 @@ Regressions exercise real execution entry points and filesystem journals with
 labeled local provider/HTTP seams. They verify the failure and subsequent retry,
 original bytes/owner, diagnostics and unchanged mutation counts. Existing hosted
 cases separately cover actual Railway scope/snapshot HTTP400 recovery.
+
+The full391-test run exposed two CLI assertions that still expected blocked
+verification after a rejected verified-owner snapshot read. The public CLI now
+correctly saves unknown verification while retaining the exact old UUID. The
+10-case HTTP-loopback suite now checks that UUID after repeated failure, restores
+the read, executes the copied command again, and verifies blocked subject-change
+cleanup with unchanged original bytes and zero writes. All10CLI cases passed.

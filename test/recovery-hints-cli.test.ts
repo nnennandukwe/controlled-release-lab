@@ -57,9 +57,9 @@ it.each([['blocked', 'snapshot', 'file'], ['verified', 'snapshot', 'file'], ['bl
     expect(failed.code, failed.stderr + failed.stdout).toBe(2);
     const result = output(failed.stdout);
     expect(result.reasonCodes).toEqual(['PROVIDER_HTTP']);
-    if (phase === 'snapshot') expect(await loadRecord(resolve(cliCwd, result.recordPath))).toMatchObject({ outcome: 'blocked', target });
+    if (phase === 'snapshot') expect(await loadRecord(resolve(cliCwd, result.recordPath))).toMatchObject({ outcome: outcome === 'verified' ? 'unknown_outcome' : 'blocked', target });
     else expect(result.recordPath).toBeUndefined();
-    expect(await readLockOwner(root, target)).toEqual(expect.any(String));
+    expect(await readLockOwner(root, target)).toBe(journal.attemptId);
     const command = (result.recoveryInstruction as string).match(/ Run ((?:(?:LAB_CONFIG_JSON=.+ )?npm run lab --|gh workflow run) .+)\.$/)?.[1];
     expect(command, result.recoveryInstruction).toBeDefined();
     expect(command).toContain(journal.attemptId);
@@ -89,13 +89,22 @@ it.each([['blocked', 'snapshot', 'file'], ['verified', 'snapshot', 'file'], ['bl
     expect(retried.code, retried.stderr + retried.stdout).toBe(2);
     const retryResult = output(retried.stdout);
     expect(retryResult.reasonCodes).toEqual([outcome === 'blocked' ? 'COMPLETED_ATTEMPT_CLEANUP' : 'PROVIDER_HTTP']);
-    if (outcome === 'blocked' || phase === 'snapshot') expect(await loadRecord(retryResult.recordPath)).toMatchObject({ outcome: 'blocked', target });
+    if (outcome === 'blocked' || phase === 'snapshot') expect(await loadRecord(retryResult.recordPath)).toMatchObject({ outcome: outcome === 'verified' ? 'unknown_outcome' : 'blocked', target });
     else expect(retryResult.recordPath).toBeUndefined();
-    expect(await readLockOwner(activeRoot, target)).toEqual(outcome === 'blocked' ? undefined : expect.any(String));
+    expect(await readLockOwner(activeRoot, target)).toBe(outcome === 'blocked' ? undefined : journal.attemptId);
     if (configuration === 'workflow') expect(await readLockOwner(root, target)).toBe(journal.attemptId);
+    if (outcome === 'verified') {
+      rejectSnapshot = false;
+      const recovered = await run('/bin/sh', ['-c', command!], true);
+      expect(recovered.code, recovered.stderr + recovered.stdout).toBe(2);
+      const final = output(recovered.stdout);
+      expect(final.reasonCodes).toEqual(['COMPLETED_SUBJECT_CHANGED', 'COMPLETED_ATTEMPT_CLEANUP']);
+      expect((await loadRecord(final.recordPath)).outcome).toBe('blocked');
+      expect(await readLockOwner(activeRoot, target)).toBeUndefined();
+    }
     for (const [path, bytes] of original) expect(await readFile(path)).toEqual(bytes);
     expect(mutations).toBe(0);
-    expect(snapshots).toBe(phase === 'snapshot' ? 2 : outcome === 'blocked' ? 1 : 0);
+    expect(snapshots).toBe((phase === 'snapshot' ? 2 : outcome === 'blocked' ? 1 : 0) + (outcome === 'verified' ? 1 : 0));
   } finally {
     await Promise.all(children.map(child => child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : new Promise<void>(accept => { child.once('close', () => accept()); child.kill('SIGKILL'); })));
     server.closeAllConnections(); await new Promise<void>(accept => server.close(() => accept()));
