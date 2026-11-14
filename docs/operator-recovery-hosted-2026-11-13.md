@@ -181,3 +181,19 @@ Together they recorded 26 provider reads, zero mutation attempts, preserved
 original records/checksums and unchanged hosted deployment/configuration. Both
 verified-drift retries saved blocked `COMPLETED_SUBJECT_CHANGED` cleanup with
 `COMPLETED_ATTEMPT_CLEANUP`, then released only their retained owner markers.
+
+## Source and durable-readback guards
+
+Review87e91fef found that the local producer recorded HEAD without checking source
+edits. A runtime reproduction reached the provider transport with an owned source
+edit. The producer now requires a clean committed checkout before provider access
+and checks cleanliness plus the same commit again before writing success receipts.
+Disposable Git checks cover working-tree, index and untracked edits, plus a changed
+commit. A dirty runtime invocation now stops before any provider request.
+
+Review77e87af5 found an earlier exposure persistence boundary. A previously verified
+owner now enters blocked cleanup only after both initial provider and flag
+readbacks are durably journaled. Intent/provider/flag append failures retain the
+original owner and unknown recovery state; retrying the original owner completes
+normal fresh verification. All three failure/recovery regressions pass. Earlier
+records and receipts retain their original source revisions and observations.

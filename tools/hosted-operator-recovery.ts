@@ -8,6 +8,14 @@ import { Railway } from './railway.js';
 import { requireProtectedEnvironment } from './workflow-guard.js';
 import policy from '../config/release-policy.json' with { type: 'json' };
 
+export function assertOperatorSource(repository: string, expectedSha?: string) {
+  const source = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim();
+  const changes = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repository, encoding: 'utf8' });
+  if (changes) throw new LabError('DIRTY_OPERATOR_SOURCE', 'Run the hosted check from a clean committed checkout. Preserve your edits and keep generated artifacts under ignored work/ or outside source.');
+  if (expectedSha && source !== expectedSha) throw new LabError('OPERATOR_SOURCE_CHANGED', 'The operator commit changed during the check. Preserve its evidence and rerun from one clean committed source.');
+  return source;
+}
+
 export type HostedReadEvent = { injected?: boolean; status?: number; errorCount?: number | null; mutationRejected?: boolean };
 export function checkHostedReadEvents(events: HostedReadEvent[], failurePhase: 'scope' | 'snapshot' = 'snapshot') {
   const rejected = events.filter(event => event.injected);
@@ -49,7 +57,7 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
   if (fixtureKind !== 'blocked' && fixtureKind !== 'verified-drift') throw new LabError('HOSTED_CHECK_FIXTURE_INVALID', 'Choose blocked or verified-drift for the hosted fixture.');
   if (environment.GITHUB_ACTIONS === 'true') await requireProtectedEnvironment({ ...environment, LAB_GITHUB_ENVIRONMENT: 'staging' });
   const repository = fileURLToPath(new URL('../', import.meta.url));
-  const operatorSourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim();
+  const operatorSourceSha = assertOperatorSource(repository);
   const startedAt = new Date().toISOString(), target = policy.targets.staging;
   const directProviderReads: { at: string; status: number }[] = [];
   const hosting = new Railway(environment.RAILWAY_PROJECT_TOKEN ?? '', target, async (input, options) => {
@@ -100,6 +108,7 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
   checkHostedReadEvents(events, failurePhase);
   const after = await hosting.snapshot();
   if (fingerprint(before) !== fingerprint(after)) throw new LabError('HOSTED_CHECK_FAILED', 'Provider subject changed during the read-only recovery check.');
+  assertOperatorSource(repository, operatorSourceSha);
   const receipt = { schemaVersion: 1, outcome: 'hosted_cleanup_verified', authorized: false, operatorSourceSha, failurePhase, fixtureKind, startedAt, finishedAt: new Date().toISOString(), targetName: 'staging', target, before, after, fixture: { syntheticTerminalRecord: true, priorOutcome: original.outcome, simulatedHistoricalConfiguration: fixtureKind === 'verified-drift', simulatedFailure: 'one invalid read-only GraphQL field sent to the actual Railway endpoint' }, originalAttemptId: journal.attemptId, originalRecordUnchanged: true, lockRetainedAfterFailure: true, lockReleased: true, providerMutations: 0, providerRequests: events.length + directProviderReads.length, directProviderReads, failedOutcome: failed.outcome, failedReasonCodes: failed.reasonCodes, failedRecordPath: failed.recordPath ?? null, recoveredRecordPath: recovered.recordPath, events, directory };
   await writeFile(join(directory, 'receipt.json'), `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
   // Publish the safe projection in the producer; downstream copies stay byte-exact.

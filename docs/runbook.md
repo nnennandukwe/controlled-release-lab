@@ -782,3 +782,10 @@ artifacts. A rehearsed system proves behavior, not participant learning or adopt
 - [GitHub environment protection](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
 - [Railway deployment API](https://docs.railway.com/integrations/api/manage-deployments)
 - [Railway rollback](https://docs.railway.com/deployments/deployment-actions)
+
+The standalone hosted recovery producer requires clean tracked, staged and
+untracked source state before provider access. It checks the same commit and
+cleanliness again before emitting successful receipts. Preserve edits in their
+own checkout or commit; keep generated check artifacts under ignored `work/` or
+outside source. These checks detect ordinary source changes during the cooperative
+lab exercise. A failed source check retains its diagnostic artifacts for review.

@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { checkHostedReadEvents, hostedOperatorRecovery, type HostedReadEvent } from '../tools/hosted-operator-recovery.js';
+import { assertOperatorSource, checkHostedReadEvents, hostedOperatorRecovery, type HostedReadEvent } from '../tools/hosted-operator-recovery.js';
 import { Railway } from '../tools/railway.js';
 import policy from '../config/release-policy.json' with { type: 'json' };
 import { resolveRelease } from '../tools/release-workflow.js';
@@ -83,4 +84,29 @@ it('rejects an unknown terminal fixture before any provider request', async () =
   const transport = vi.spyOn(globalThis, 'fetch');
   await expect(hostedOperatorRecovery({ LAB_HOSTED_RECOVERY_CHECK: 'true', LAB_TARGET: 'staging', LAB_HOSTED_RECOVERY_FIXTURE: 'unknown' })).rejects.toMatchObject({ code: 'HOSTED_CHECK_FIXTURE_INVALID' });
   expect(transport).not.toHaveBeenCalled();
+});
+
+async function sourceFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'operator-source-'));
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=Recovery Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  git('init', '--quiet'); await writeFile(join(root, 'operator.ts'), 'export const fixture = true;\n'); git('add', 'operator.ts'); git('commit', '--quiet', '-m', 'Fixture source');
+  return { root, git, source: git('rev-parse', 'HEAD') };
+}
+
+it.each(['working', 'index', 'untracked'])('rejects %s source edits instead of attributing them to clean HEAD', async mode => {
+  const fixture = await sourceFixture();
+  try {
+    expect(assertOperatorSource(fixture.root)).toBe(fixture.source);
+    await writeFile(join(fixture.root, mode === 'untracked' ? 'extra.ts' : 'operator.ts'), 'export const fixture = false;\n');
+    if (mode === 'index') fixture.git('add', 'operator.ts');
+    expect(() => assertOperatorSource(fixture.root, fixture.source)).toThrow(expect.objectContaining({ code: 'DIRTY_OPERATOR_SOURCE' }));
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+it('rejects a clean but changed commit at the final source check', async () => {
+  const fixture = await sourceFixture();
+  try {
+    await writeFile(join(fixture.root, 'operator.ts'), 'export const fixture = false;\n'); fixture.git('add', 'operator.ts'); fixture.git('commit', '--quiet', '-m', 'Changed fixture');
+    expect(() => assertOperatorSource(fixture.root, fixture.source)).toThrow(expect.objectContaining({ code: 'OPERATOR_SOURCE_CHANGED' }));
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });

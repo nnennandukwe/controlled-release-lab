@@ -255,3 +255,21 @@ The lock commit protocol stays unchanged. Empty outer directories represent
 available environments; README/runbook wording will identify active owner markers
 and retain the older plain-file recovery format. Historical closeout observations
 keep their original wording and state.
+
+## Readback persistence and receipt source identity
+
+Review77e87af5 exposed a release boundary before exposure readback was durable.
+The verified-owner fallback must begin only after both provider and flag journal
+appends succeed. Earlier persistence failure keeps the original owner and
+unknown recovery outcome; a new saved record without readback can't clear it.
+Three append failpoints cover intent, provider readback and flag readback, followed
+by an original-owner retry. Existing save-before-release ordering still applies.
+
+Review87e91fef exposed local source attribution without a clean-tree guard. A
+real harness invocation with an owned test edit reached the transport while
+claiming unchanged HEAD. The producer will require clean tracked, index and
+untracked source state before provider access, then verify cleanliness and the
+same HEAD again before emitting success receipts. Tests use disposable Git
+repositories for each edit mode and a changed commit. Generated artifacts belong
+under ignored `work/` or outside source. This is before/after validation in the
+cooperative lab, rather than isolation against a hostile concurrent source editor.

@@ -181,11 +181,12 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
   const identity = mutating ? await protectedRun(request, verified.requestDigest) : null;
   const journal = new Journal(join(root, 'exposure'));
   const release = mutating ? await acquireLock(root, request.target, journal.attemptId) : undefined;
-  let effectAttempted = false, saved = false, measuredStableState = false;
+  let effectAttempted = false, saved = false, measuredStableState = false, completedReadback = false;
   const record: ExposureRecord = { schemaVersion: 1, kind: 'exposure-record', attemptId: journal.attemptId, operation: input.operation, request, requestDigest: verified.requestDigest, startedAt: new Date().toISOString(), finishedAt: null, outcome: 'unknown_outcome', reasonCodes: [], recoveryInstruction: '', submitted: false, acknowledged: false, featureProof: null, authorization: identity, reconciles: input.attempt ?? null };
   try {
     await journal.initialize(); await preserveRelease(join(journal.directory, 'release'), verified);
     await journal.append('intent', record); await journal.append('before-provider', beforeProvider); await journal.append('before-flag', before);
+    completedReadback = completedVerified;
     if (terminalCleanup) throw new LabError('COMPLETED_ATTEMPT_CLEANUP', 'The earlier attempt already has a terminal unsuccessful result. Its owned lock can be cleared after this read-only record is saved. Inspect the earlier result and resolve fresh authority for any recovery.');
     if (completedVerified) assertServing(beforeProvider, subject);
     if (mutating) {
@@ -216,9 +217,9 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
     record.recoveryInstruction = prior ? 'Desired provider state and sampled behavior observed. This does not attribute the change to the original PATCH.' : '';
   } catch (error) {
     const failure = error instanceof LabError ? error : new LabError('EXPOSURE_EXECUTION_ERROR', 'Exposure execution or persistence failed. Inspect retained evidence.');
-    if (completedVerified) record.featureProof = null;
-    record.outcome = completedVerified ? 'blocked' : (effectAttempted || prior) && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' && !(measuredStableState && ['EXPOSURE_HOLD', 'EXPOSURE_WINDOW'].includes(failure.code)) ? 'unknown_outcome' : failure.outcome;
-    record.reasonCodes = [failure.code, ...(completedVerified && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' ? ['COMPLETED_ATTEMPT_CLEANUP'] : [])]; record.recoveryInstruction = `${failure.message}${completedVerified ? ' The earlier verified attempt is complete. This blocked readback clears only its retained lock; resolve fresh authority for recovery.' : ''}${record.outcome === 'blocked' && measuredStableState ? ' Desired flag state is known but health is not verified. Independently authorize disable; no expansion evidence was issued.' : ''}${record.outcome === 'unknown_outcome' ? ` Reconcile exposure attempt ${prior?.record.attemptId ?? journal.attemptId}.` : ''}`;
+    if (completedReadback) record.featureProof = null;
+    record.outcome = completedReadback ? 'blocked' : (effectAttempted || prior) && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' && !(measuredStableState && ['EXPOSURE_HOLD', 'EXPOSURE_WINDOW'].includes(failure.code)) ? 'unknown_outcome' : failure.outcome;
+    record.reasonCodes = [failure.code, ...(completedReadback && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' ? ['COMPLETED_ATTEMPT_CLEANUP'] : [])]; record.recoveryInstruction = `${failure.message}${completedReadback ? ' The earlier verified attempt is complete. This blocked readback clears only its retained lock; resolve fresh authority for recovery.' : ''}${record.outcome === 'blocked' && measuredStableState ? ' Desired flag state is known but health is not verified. Independently authorize disable; no expansion evidence was issued.' : ''}${record.outcome === 'unknown_outcome' ? ` Reconcile exposure attempt ${prior?.record.attemptId ?? journal.attemptId}.` : ''}`;
   }
   let recordPath: string;
   try {

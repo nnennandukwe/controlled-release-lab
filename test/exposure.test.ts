@@ -401,3 +401,24 @@ it.each(['configuration','flag'])('clears a previously verified exposure after %
  const record=await loadExposureRecord(recovered.recordPath);expect(record.featureProof).toBeNull();expect(()=>createExposureEnvelope(record,scenario.request.operator)).toThrow();
  expect(scenario.patches()).toBe(1);
 },30000);
+
+it.each(['-intent.json','-before-provider.json','-before-flag.json'])('retains a verified owner when durable readback fails at %s',async suffix=>{
+ const scenario=await fixture(),work=join(scenario.root,'work'),nativeUnlink=fs.unlink;
+ const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
+  if(String(path).endsWith('.lock'))throw Object.assign(new Error('fixture retained terminal lock'),{code:'EACCES'});
+  return nativeUnlink(path);
+ });
+ const original=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
+ cleanup.mockRestore();expect(original.outcome).toBe('verified');
+ const bytes=await readFile(original.recordPath),nativeOpen=fs.open;
+ const failure=vi.spyOn(fs,'open').mockImplementation(async(...args)=>{
+  if(String(args[0]).endsWith(suffix))throw new Error('fixture unsaved readback');
+  return nativeOpen(...args);
+ });
+ const failed=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
+ failure.mockRestore();
+ expect(failed.outcome).toBe('unknown_outcome');expect(failed.reasonCodes).not.toContain('COMPLETED_ATTEMPT_CLEANUP');
+ expect(await readLockOwner(work,scenario.request.target)).toBe(original.attemptId);expect(await readFile(original.recordPath)).toEqual(bytes);
+ const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
+ expect(recovered.outcome).toBe('verified');expect(await readLockOwner(work,scenario.request.target)).toBeUndefined();expect(scenario.patches()).toBe(1);
+},30000);
