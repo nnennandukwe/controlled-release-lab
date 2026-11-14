@@ -255,6 +255,18 @@ owner markers or legacy owner files when checking unresolved locks, rather than
 counting outer directory entries. Use the upgraded operator consistently for a
 retained work directory.
 
+Unpublished preparation names include their creator PID. Before acquiring a new
+lock, the operator reclaims empty or partially written scratch only after the OS
+reports that process has stopped. A live, reused or uninspectable PID preserves
+its preparation. This recovery uses the same cooperative, same-host filesystem
+boundary as lock publication.
+
+`LOCK_PREPARATION_STATE_INVALID` preserves unknown or legacy preparation data
+and stops new preparation creation. Stop old operators, back up the work
+directory, and relocate only identified unpublished scratch or unrelated files
+you own. Preserve canonical locks, journals and unknown data. For
+`LOCK_PREPARATION_CLEANUP_FAILED`, repair filesystem access before retrying.
+
 For a previously verified result, reconciliation attempts fresh provider and
 runtime verification. If fresh readback shows subject drift or a complete window
 returns unhealthy HTTP responses, it saves blocked readback with the failure reason

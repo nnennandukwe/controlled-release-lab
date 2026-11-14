@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm, unlink } from 'node:fs/promises';
+import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm, rmdir, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 
@@ -142,11 +142,45 @@ export class Journal {
   }
 }
 
+async function cleanupLockPreparations(preparations: string) {
+  let inspected = preparations;
+  const invalid = () => new LabError('LOCK_PREPARATION_STATE_INVALID', `Unknown unpublished preparation at ${inspected}. Stop old operators, back up this work directory and relocate only identified scratch or unrelated files you own. Preserve canonical locks, journals and unknown data, then retry.`);
+  try {
+    for (const entry of await readdir(preparations, { withFileTypes: true })) {
+      inspected = join(preparations, entry.name);
+      const owner = /^owner-([1-9][0-9]*)-[A-Za-z0-9]{6}$/.exec(entry.name), pid = Number(owner?.[1]);
+      if (!entry.isDirectory() || !owner || !Number.isSafeInteger(pid) || pid > 2147483647) throw invalid();
+      try { process.kill(pid, 0); continue; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') continue; }
+      try {
+        if (!(await lstat(inspected)).isDirectory()) throw invalid();
+        const files = await readdir(inspected);
+        if (files.length > 1 || files.some(name => !/^[a-f0-9]{64}\.lock$/.test(name))) throw invalid();
+        if (files[0]) {
+          const marker = join(inspected, files[0]);
+          try {
+            const state = await lstat(marker);
+            if (!state.isFile() || state.size > 256) throw invalid();
+            // A stopped process can leave its unpublished marker partially written.
+            await unlink(marker);
+          } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        }
+        // A concurrent unknown file prevents removal; never recursively erase it.
+        await rmdir(inspected);
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
+  } catch (error) {
+    if (error instanceof LabError) throw error;
+    throw new LabError('LOCK_PREPARATION_CLEANUP_FAILED', `No new lock was acquired. Unpublished preparation cleanup failed at ${inspected}. Preserve canonical locks and journals, repair access and retry.`, 'blocked', { cause: error });
+  }
+}
+
 export async function acquireLock(root: string, target: Target, attemptId: string) {
   await mkdir(join(root, 'locks'), { recursive: true, mode: 0o700 });
   const preparations = join(root, 'lock-preparations');
   await mkdir(preparations, { recursive: true, mode: 0o700 });
-  const prepared = await mkdtemp(join(preparations, 'owner-'));
+  await cleanupLockPreparations(preparations);
+  const prepared = await mkdtemp(join(preparations, `owner-${process.pid}-`));
   try {
     const file = await open(join(prepared, `${fingerprint(attemptId)}.lock`), 'wx', 0o600);
     try { await file.writeFile(attemptId); await file.sync(); } finally { await file.close(); }

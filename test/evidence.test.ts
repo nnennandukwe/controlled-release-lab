@@ -104,6 +104,71 @@ it('reports an unpublished preparation when its cleanup also fails', async () =>
   await (await acquireLock(directory, target, 'next'))();
 });
 
+async function abandonedPreparation(directory: string) {
+  const prepared = join(directory, 'lock-preparations', 'owner-999999-aBcDeF');
+  await mkdir(prepared, { recursive: true });
+  await writeFile(join(prepared, `${fingerprint('interrupted')}.lock`), 'in');
+  const kill = process.kill;
+  vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+    if (pid === 999999 && signal === 0) throw Object.assign(new Error('fixture stopped process'), { code: 'ESRCH' });
+    return kill(pid, signal);
+  });
+  return prepared;
+}
+
+it.each(['readdir', 'lstat', 'unlink', 'rmdir'] as const)('preserves canonical state when preparation cleanup %s fails', async phase => {
+  const directory = await root(); await abandonedPreparation(directory);
+  const failure = vi.spyOn(fs, phase).mockRejectedValueOnce(Object.assign(new Error('fixture cleanup denied'), { code: 'EACCES' }));
+  await expect(acquireLock(directory, target, 'next')).rejects.toMatchObject({ code: 'LOCK_PREPARATION_CLEANUP_FAILED' });
+  failure.mockRestore();
+  expect(await ownsLock(directory, target, 'next')).toBe(false);
+  expect(await fs.readdir(join(directory, 'lock-preparations'))).toHaveLength(1);
+  const release = await acquireLock(directory, target, 'next');
+  expect(await fs.readdir(join(directory, 'lock-preparations'))).toEqual([]);
+  await release();
+});
+
+it.each(['legacy', 'unknown-file'])('preserves %s preparation data and supports explicit relocation recovery', async kind => {
+  const directory = await root();
+  const prepared = kind === 'legacy' ? join(directory, 'lock-preparations', 'owner-legacy') : await abandonedPreparation(directory);
+  await mkdir(prepared, { recursive: true }); await writeFile(join(prepared, 'operator-note'), 'preserve this note');
+  await expect(acquireLock(directory, target, 'next')).rejects.toMatchObject({ code: 'LOCK_PREPARATION_STATE_INVALID', message: expect.stringContaining('back up') });
+  expect(await fs.readFile(join(prepared, 'operator-note'), 'utf8')).toBe('preserve this note');
+  expect(await ownsLock(directory, target, 'next')).toBe(false);
+  const backup = join(directory, 'operator-backup'); await fs.rename(prepared, backup);
+  await (await acquireLock(directory, target, 'next'))();
+  expect(await fs.readFile(join(backup, 'operator-note'), 'utf8')).toBe('preserve this note');
+});
+
+it('allows concurrent collectors to remove only the same stopped preparation', async () => {
+  const directory = await root(); await abandonedPreparation(directory);
+  const other = { ...target, environmentId: '66666666-6666-4666-8666-666666666666' };
+  const releases = await Promise.all([acquireLock(directory, target, 'first'), acquireLock(directory, other, 'second')]);
+  expect(await fs.readdir(join(directory, 'lock-preparations'))).toEqual([]);
+  expect(await ownsLock(directory, target, 'first')).toBe(true); expect(await ownsLock(directory, other, 'second')).toBe(true);
+  await Promise.all(releases.map(release => release()));
+});
+
+it('preserves a file added during stopped-preparation removal', async () => {
+  const directory = await root(), prepared = await abandonedPreparation(directory), nativeUnlink = fs.unlink;
+  const note = join(prepared, 'operator-note');
+  vi.spyOn(fs, 'unlink').mockImplementation(async path => {
+    if (String(path).startsWith(`${prepared}/`)) await writeFile(note, 'preserve concurrent note');
+    return nativeUnlink(path);
+  });
+  await expect(acquireLock(directory, target, 'next')).rejects.toMatchObject({ code: 'LOCK_PREPARATION_CLEANUP_FAILED' });
+  expect(await fs.readFile(note, 'utf8')).toBe('preserve concurrent note');
+  expect(await ownsLock(directory, target, 'next')).toBe(false);
+});
+
+it('preserves preparations when process liveness cannot be established', async () => {
+  const directory = await root(), prepared = await abandonedPreparation(directory);
+  vi.mocked(process.kill).mockImplementation(() => { throw Object.assign(new Error('fixture process not inspectable'), { code: 'EPERM' }); });
+  const release = await acquireLock(directory, target, 'next');
+  expect(await fs.readdir(prepared)).toEqual([`${fingerprint('interrupted')}.lock`]);
+  await release();
+});
+
 it.each(['readdir', 'readFile'] as const)('preserves a published owner when inspector %s fails', async phase => {
   const directory = await root();
   await acquireLock(directory, target, 'first');

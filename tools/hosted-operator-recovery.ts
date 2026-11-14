@@ -111,7 +111,8 @@ export async function hostedOperatorRecovery(environment: NodeJS.ProcessEnv = pr
   };
   const failed = await run(process.execPath, ['--import', 'tsx', 'tools/lab.ts', 'reconcile', '--target', 'staging', '--attempt', journal.attemptId, '--config', config, '--work-dir', root], true);
   const command = failed.recoveryInstruction.match(/ Run (npm run lab -- .+)\.$/)?.[1];
-  if (failed.outcome !== 'blocked' || !failed.reasonCodes.some(code => ['PROVIDER_HTTP', 'PROVIDER_REJECTED'].includes(code)) || !command?.includes(`--attempt ${journal.attemptId}`) || !command.includes('--config ') || await readLockOwner(root, target) !== journal.attemptId) throw new LabError('HOSTED_CHECK_FAILED', 'The real provider rejection did not preserve the original owner and retry command.');
+  const failureOutcome = fixtureKind === 'verified-drift' && failurePhase === 'snapshot' ? 'unknown_outcome' : 'blocked';
+  if (failed.outcome !== failureOutcome || !failed.reasonCodes.some(code => ['PROVIDER_HTTP', 'PROVIDER_REJECTED'].includes(code)) || !command?.includes(`--attempt ${journal.attemptId}`) || !command.includes('--config ') || await readLockOwner(root, target) !== journal.attemptId) throw new LabError('HOSTED_CHECK_FAILED', 'The real provider rejection did not preserve the original owner and retry command.');
   if (failurePhase === 'snapshot') {
     if (!failed.recordPath) throw new LabError('HOSTED_CHECK_FAILED', 'The failed snapshot read did not save its record.');
     await loadRecord(failed.recordPath);

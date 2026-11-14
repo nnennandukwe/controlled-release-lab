@@ -403,3 +403,54 @@ correctly saves unknown verification while retaining the exact old UUID. The
 10-case HTTP-loopback suite now checks that UUID after repeated failure, restores
 the read, executes the copied command again, and verifies blocked subject-change
 cleanup with unchanged original bytes and zero writes. All10CLI cases passed.
+
+## Unpublished preparation recovery
+
+Native25ecf795 identifies scratch directories surviving process interruption.
+Canonical state remains the populated environment lock directory; publication is
+still rename(prepared, lockPath). New private names include the creator PID and a
+random suffix. Before another acquisition, inspect only lock-preparations/.
+A live PID or an unprovable liveness result preserves its preparation. ESRCH
+permits removing only an empty private directory or its one regular reserved
+64-hex.lock scratch marker (including an interrupted partial write). Unknown
+entries and legacy names are preserved and block further preparation creation,
+with backup/quiesce/relocation guidance. Canonical locks and journals aren't
+visited by scratch cleanup. PID reuse is conservative: a live reused PID keeps
+the old scratch. This retains the cooperative, same-host macOS/Linux boundary.
+
+Invariants: only stopped-owner scratch is reaped; active preparations, unknown
+files and published owners survive; every rejected cleanup precedes publication;
+concurrent collectors tolerate only disappearance of the same stopped scratch.
+Pre-commit failures leave prior canonical state plus an explicit recovery path.
+Post-publication owned-marker release and its warning behavior stay unchanged.
+
+| Phase/operation | Fault or race | Required result and recovery |
+|---|---|---|
+| Parent readdir | Permission failure | No preparation/publication; repair access and retry |
+| PID probe | Live PID or EPERM | Preserve active/unprovable scratch |
+| Child readdir/lstat | Unreadable or unknown entry | Preserve bytes; quiesce, back up and relocate verified scratch |
+| Marker unlink | Permission failure | No new publication; retain recovery path |
+| Empty-directory rmdir | Permission failure | Empty scratch retained; retry after access repair |
+| Inspect/remove race | Another collector removes it | ENOENT is idempotent; canonical owners untouched |
+| Inspect/remove race | An unknown file appears | Preserve that file; rmdir refuses nonempty directory |
+| Preparation before open/during write | Real child stops | Restart reaps empty/partial unpublished scratch |
+| Before/after rename | Real child stops | Reap only before publication; reconcile published owner |
+
+Lifecycle evidence will cover live acquisition, active publisher preservation,
+real interruption/restart, partial marker cleanup, malformed-state preservation,
+manual relocation recovery, removal failures and concurrent collectors through
+acquireLock/readLockOwner. Existing acquisition/release failpoints remain.
+
+Nativedbeab161 is the hosted checker's old first-error outcome assumption. The
+verified-drift snapshot rejection now expects unknown_outcome, as the real CLI
+loopback cases prove; scope and blocked-fixture rejection remain blocked.
+
+Four real-process interruption cases failed before scratch reclamation; the
+existing post-publication case already passed. Eight deterministic cleanup-fault/
+unknown-data/concurrency cases also failed before edits; the uninspectable-PID
+preservation case already passed. After implementation all69focused evidence,
+process-interruption, CLI and hosted-harness checks passed, plus typecheck.
+Actual lock ownership is inspected by acquireLock/readLockOwner/ownsLock after
+restart and each fault. OS liveness is real in process tests; deterministic I/O
+failpoints use a labeled stopped-PID seam. Power-loss durability and shared
+filesystems across concurrently running hosts remain outside the local model.
