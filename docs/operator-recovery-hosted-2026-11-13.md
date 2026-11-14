@@ -219,3 +219,34 @@ The earlier observations remain unchanged.
 Recovery hints now resolve work and configuration paths before shell quoting.
 The CLI tests start from a package subdirectory with relative paths and execute
 the emitted npm command, checking that it finds the original attempt and owner.
+
+
+## Runtime guard and current four-case evidence
+
+All four hosted recovery cases passed from clean operator source
+`ec033f529a71a07320ff90ec115da5a8aabd25ac` on November 13, 2026, from
+17:37:03 to 17:37:10 Pacific. These producer receipts are byte-exact copies of
+`public-receipt.json` from authorized local staging invocations.
+
+| Teaching fixture | Rejected read | Provider reads | Receipt |
+|---|---|---:|---|
+| blocked | scope | 6 | [Producer output](evidence/operator-recovery-2026-11-13-ec033f5-blocked-scope.json) |
+| blocked | snapshot | 7 | [Producer output](evidence/operator-recovery-2026-11-13-ec033f5-blocked-snapshot.json) |
+| verified-drift | scope | 6 | [Producer output](evidence/operator-recovery-2026-11-13-ec033f5-verified-drift-scope.json) |
+| verified-drift | snapshot | 7 | [Producer output](evidence/operator-recovery-2026-11-13-ec033f5-verified-drift-snapshot.json) |
+
+The four cases recorded 26 provider reads and zero mutation attempts. Each
+intentionally invalid GraphQL field received an actual Railway HTTP 400. The
+emitted CLI retry saved blocked cleanup evidence, released only its retained
+owner and preserved the original record/checksum bytes. Before/after deployment,
+image and configuration matched the staging subject recorded above. The
+verified-drift fixture retained that actual deployment ID and image, simulating
+only its earlier configuration.
+
+The child-process preload now lives at `tools/hosted-operator-transport.ts` with
+release operations. Its endpoint and read-only guards are unchanged; these four
+executions exercised the new preload path. At the same source revision, both
+[branch verification](https://github.com/nnennandukwe/controlled-release-lab/actions/runs/43541630604)
+and [PR verification](https://github.com/nnennandukwe/controlled-release-lab/actions/runs/43541636516)
+passed all 380 tests and container checks. The protected main-only invocation of
+the new workflow input still follows merge and retains its own execution record.

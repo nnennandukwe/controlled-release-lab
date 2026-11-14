@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "outcome": "hosted_cleanup_verified",
+  "authorized": false,
+  "operatorSourceSha": "ec033f529a71a07320ff90ec115da5a8aabd25ac",
+  "failurePhase": "scope",
+  "fixtureKind": "blocked",
+  "startedAt": "2026-11-14T01:37:03.729Z",
+  "finishedAt": "2026-11-14T01:37:05.419Z",
+  "targetName": "staging",
+  "target": {
+    "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+    "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+    "environmentId": "80bb920f-55eb-479c-b395-cacfb78344c3",
+    "url": "https://catalog-staging-55dc.up.railway.app"
+  },
+  "before": {
+    "sourceImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:1f38ac2ff7292d873a2162f91631a3dbc810b31f5a83b9e702c6f621f6ada8f4",
+    "latestId": "ccf563b3-8dd2-4f3d-af4f-ed65196f8b77",
+    "active": [
+      {
+        "id": "ccf563b3-8dd2-4f3d-af4f-ed65196f8b77",
+        "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+        "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+        "environmentId": "80bb920f-55eb-479c-b395-cacfb78344c3",
+        "status": "SUCCESS",
+        "canRollback": true,
+        "image": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:1f38ac2ff7292d873a2162f91631a3dbc810b31f5a83b9e702c6f621f6ada8f4",
+        "metadataKeys": [
+          "image",
+          "imageDigest",
+          "logsV2",
+          "reason",
+          "runtime",
+          "serviceManifest",
+          "volumeMounts"
+        ]
+      }
+    ],
+    "configurationFingerprint": "d174192d79e0d2f36ddbff6a7c8ba587fa9771db6c10b427a51970531375bbad"
+  },
+  "after": {
+    "sourceImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:1f38ac2ff7292d873a2162f91631a3dbc810b31f5a83b9e702c6f621f6ada8f4",
+    "latestId": "ccf563b3-8dd2-4f3d-af4f-ed65196f8b77",
+    "active": [
+      {
+        "id": "ccf563b3-8dd2-4f3d-af4f-ed65196f8b77",
+        "projectId": "3e9cfaf4-3dec-4aa9-a8a9-ef7a8af538b6",
+        "serviceId": "a84fd6cc-c41c-4ba0-ad84-470634a51e28",
+        "environmentId": "80bb920f-55eb-479c-b395-cacfb78344c3",
+        "status": "SUCCESS",
+        "canRollback": true,
+        "image": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:1f38ac2ff7292d873a2162f91631a3dbc810b31f5a83b9e702c6f621f6ada8f4",
+        "metadataKeys": [
+          "image",
+          "imageDigest",
+          "logsV2",
+          "reason",
+          "runtime",
+          "serviceManifest",
+          "volumeMounts"
+        ]
+      }
+    ],
+    "configurationFingerprint": "d174192d79e0d2f36ddbff6a7c8ba587fa9771db6c10b427a51970531375bbad"
+  },
+  "fixture": {
+    "syntheticTerminalRecord": true,
+    "priorOutcome": "blocked",
+    "retainedDeploymentId": null,
+    "retainedImage": "ghcr.io/nnennandukwe/controlled-release-lab@sha256:1f38ac2ff7292d873a2162f91631a3dbc810b31f5a83b9e702c6f621f6ada8f4",
+    "retainedConfigurationFingerprint": "d174192d79e0d2f36ddbff6a7c8ba587fa9771db6c10b427a51970531375bbad",
+    "simulatedHistoricalConfiguration": false,
+    "simulatedFailure": "one invalid read-only GraphQL field sent to the actual Railway endpoint"
+  },
+  "originalAttemptId": "33d61d6f-10eb-401d-aa5f-68c555fcd9c7",
+  "originalRecordUnchanged": true,
+  "lockRetainedAfterFailure": true,
+  "lockReleased": true,
+  "providerMutations": 0,
+  "providerRequests": 6,
+  "directProviderReads": [
+    {
+      "at": "2026-11-14T01:37:03.934Z",
+      "status": 200
+    },
+    {
+      "at": "2026-11-14T01:37:04.047Z",
+      "status": 200
+    },
+    {
+      "at": "2026-11-14T01:37:05.367Z",
+      "status": 200
+    }
+  ],
+  "failedOutcome": "blocked",
+  "failedReasonCodes": [
+    "PROVIDER_HTTP"
+  ],
+  "events": [
+    {
+      "at": "2026-11-14T01:37:04.529Z",
+      "endpoint": "https://backboard.railway.com/graphql/v2",
+      "injected": true,
+      "status": 400,
+      "errorCount": 1
+    },
+    {
+      "at": "2026-11-14T01:37:05.147Z",
+      "endpoint": "https://backboard.railway.com/graphql/v2",
+      "injected": false,
+      "status": 200,
+      "errorCount": 0
+    },
+    {
+      "at": "2026-11-14T01:37:05.236Z",
+      "endpoint": "https://backboard.railway.com/graphql/v2",
+      "injected": false,
+      "status": 200,
+      "errorCount": 0
+    }
+  ],
+  "kind": "hosted-operator-recovery-public-receipt",
+  "execution": {
+    "mode": "local"
+  },
+  "originalRecordSha256": "ffe6a115c07f0becb981be45c2b45accaf083609e850b30e63610c9b5ad57ffa",
+  "originalChecksumSha256": "7507430a941fdfb4f453acd5f33d76728905e68b9aa06ba7eb99d1a35ec0ea4b",
+  "failedRecordPath": null,
+  "recoveredRecordPath": "operator's retained work/attempts/ac5c532e-c4cf-4fc4-b669-7bfb07fcbb4b/record.json"
+}
