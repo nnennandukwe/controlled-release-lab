@@ -358,3 +358,12 @@ owner and retry command without new journal/eligibility; a retry repeats all
 verification. Two verifier failure/recovery cases prove zero provider preflight
 while verification fails and preserved original bytes, followed by blocked cleanup.
 Unknown outcomes after journaling also name the runnable original-owner command.
+
+## Target validation before ownership inspection
+
+Informationala2f45f19 identified a misleading local-map rejection. Deployment
+reconciliation now validates retained/requested target identity before ownership
+inspection, then derives the lock from the retained target. Two real-filesystem
+cases failed before edits: wrong map with no foreign lock and wrong map with an
+unrelated malformed lock. Both require RESTORE_TARGET_MISMATCH before provider
+access, preserving the original owner/record and unrelated note bytes.

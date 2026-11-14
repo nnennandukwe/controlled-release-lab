@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { execute, type Operation } from '../tools/operations.js';
-import { readLockOwner, LabError, loadRecord } from '../tools/evidence.js';
+import { readLockOwner, fingerprint, LabError, loadRecord } from '../tools/evidence.js';
 import type { Hosting, Snapshot, Deployment } from '../tools/railway.js';
 
 // These tests isolate the existing provider transaction and recovery contract.
@@ -365,4 +365,23 @@ it.each(['configuration', 'runtime'])('clears a previously verified owner after 
   expect(await readFile(original.recordPath)).toEqual(bytes);
   expect((await loadRecord(recovered.recordPath)).outcome).toBe('blocked');
   expect(hosting.updateImage).toHaveBeenCalledOnce(); expect(hosting.deploy).toHaveBeenCalledOnce();
+});
+
+it.each([false, true])('reports target mismatch before reading an unrelated lock (malformed foreign lock: %s)', async malformed => {
+  const directory = await root(), hosting = host(), nativeUnlink = fs.unlink;
+  hosting.snapshot = vi.fn(async () => ({ sourceImage: null, active: [], latestId: null, configurationFingerprint: 'changed-before-effect' }));
+  const cleanup = vi.spyOn(fs, 'unlink').mockImplementation(async path => {
+    if (String(path).endsWith('.lock')) throw Object.assign(new Error('fixture retained terminal lock'), { code: 'EACCES' });
+    return nativeUnlink(path);
+  });
+  const original = await execute(request, hosting, directory, traffic);
+  cleanup.mockRestore(); expect(original.outcome).toBe('blocked');
+  const bytes = await readFile(original.recordPath), other = { ...target, environmentId: '66666666-6666-4666-8666-666666666666' };
+  const foreign = join(directory, 'locks', `${fingerprint([other.projectId, other.serviceId, other.environmentId])}.lock`);
+  if (malformed) { await fs.mkdir(foreign); await fs.writeFile(join(foreign, 'unrelated-note'), 'preserve this note'); }
+  vi.mocked(hosting.assertScope).mockClear();
+  await expect(execute({ ...request, operation: 'reconcile', attempt: original.attemptId!, target: other }, hosting, directory, traffic)).rejects.toMatchObject({ code: 'RESTORE_TARGET_MISMATCH' });
+  expect(hosting.assertScope).not.toHaveBeenCalled(); expect(hosting.deploy).not.toHaveBeenCalled(); expect(hosting.updateImage).not.toHaveBeenCalled();
+  expect(await readLockOwner(directory, target)).toBe(original.attemptId); expect(await readFile(original.recordPath)).toEqual(bytes);
+  if (malformed) expect(await readFile(join(foreign, 'unrelated-note'), 'utf8')).toBe('preserve this note');
 });

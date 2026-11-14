@@ -27,9 +27,9 @@ export async function execute(request: Operation, hosting: Hosting, root: string
   if (request.operation === 'reconcile') {
     if (!request.attempt) throw new LabError('ATTEMPT_REQUIRED', 'Supply the original --attempt UUID to reconcile.');
     prior = await loadAttempt(root, request.attempt);
-    if (prior.outcome !== 'unknown_outcome' && !await ownsLock(root, request.target, request.attempt)) throw new LabError('NOT_UNCERTAIN', 'Reconcile an unknown attempt or a completed attempt that still owns its environment lock.');
   }
   if (prior && (fingerprint(prior.target) !== fingerprint(request.target) || prior.targetName !== request.targetName)) throw new LabError('RESTORE_TARGET_MISMATCH', 'The evidence belongs to a different target. Use evidence for this exact environment.');
+  if (request.operation === 'reconcile' && prior!.outcome !== 'unknown_outcome' && !await ownsLock(root, prior!.target, request.attempt!)) throw new LabError('NOT_UNCERTAIN', 'Reconcile an unknown attempt or a completed attempt that still owns its environment lock.');
   // A rollback acknowledgement stays unknown. A blocked follow-up has a new
   // UUID and can't own the original mutation lock.
   const terminalCleanup = request.operation === 'reconcile' && prior!.outcome !== 'unknown_outcome' && prior!.outcome !== 'verified';
