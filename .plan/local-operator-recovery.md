@@ -273,3 +273,21 @@ same HEAD again before emitting success receipts. Tests use disposable Git
 repositories for each edit mode and a changed commit. Generated artifacts belong
 under ignored `work/` or outside source. This is before/after validation in the
 cooperative lab, rather than isolation against a hostile concurrent source editor.
+
+## Relative retry paths and isolated configuration fixture
+
+Review5b8cd15b identified relative work paths being reinterpreted by npm's package
+root. The CLI regressions now start from a repository subdirectory with owned
+work state under the ignored project work directory, then execute the emitted
+command through npm. A system-temp path can accidentally survive the wrong base
+because extra parent traversals stop at filesystem root; the project-local fixture
+avoids that false pass. Recovery commands will resolve work/config paths against
+the original invocation before shell quoting.
+
+Review82924701 identified a confounded verified-drift fixture: its retained
+`deploymentId` was null as well as its configuration being different. The revised
+fixture requires a stable single deployment/image and retains that actual ID and
+image, so only the historical configuration differs. Receipts expose those prior
+subject fields, and artifact inspection checks them against current provider
+readback. Earlier records remain unchanged and their broader subject-change
+coverage is labeled accurately.

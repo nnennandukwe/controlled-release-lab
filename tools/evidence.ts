@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 
 export class LabError extends Error {
@@ -96,7 +96,7 @@ export async function ownsLock(root: string, target: Target, attemptId: string) 
 }
 
 export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposure', target: 'staging' | 'live', attempt: string, root: string, configPath?: string) {
-  const quote = (path: string) => `'${path.replaceAll("'", "'\\''")}'`;
+  const quote = (path: string) => `'${resolve(path).replaceAll("'", "'\\''")}'`;
   return `npm run lab -- ${operation} --target ${target} --attempt ${attempt} --work-dir ${quote(root)}${configPath === undefined ? '' : ` --config ${quote(configPath)}`}`;
 }
 

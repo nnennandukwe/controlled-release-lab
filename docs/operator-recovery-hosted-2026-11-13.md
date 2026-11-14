@@ -197,3 +197,18 @@ readbacks are durably journaled. Intent/provider/flag append failures retain the
 original owner and unknown recovery state; retrying the original owner completes
 normal fresh verification. All three failure/recovery regressions pass. Earlier
 records and receipts retain their original source revisions and observations.
+
+
+## Isolating configuration drift
+
+Review82924701 identified that the earlier verified-drift receipts also used a
+null retained deployment ID. Those checks demonstrated subject-change cleanup
+with both deployment identity and configuration differences. The revised fixture
+requires one stable deployment/image and retains that actual identity, while
+simulating only the earlier configuration. New receipts include the retained
+subject fields so an inspector can compare them with actual provider readback.
+The earlier observations remain unchanged.
+
+Recovery hints now resolve work and configuration paths before shell quoting.
+The CLI tests start from a package subdirectory with relative paths and execute
+the emitted npm command, checking that it finds the original attempt and owner.
