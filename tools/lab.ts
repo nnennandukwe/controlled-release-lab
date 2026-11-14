@@ -111,6 +111,7 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       const allowed = ['target', 'work-dir', ...(operation === 'reconcile-exposure' ? ['attempt'] : ['release-dir']), ...(['expose', 'disable'].includes(operation) ? ['apply'] : []), ...(operation === 'expose' ? ['stage', 'rehearse-response-loss'] : [])];
       if (Object.keys(values).some(key => !allowed.includes(key))) throw new LabError('INVALID_EXPOSURE_ARGUMENT', 'Exposure accepts only its documented request, stage and work-directory arguments.');
     } else if (values.stage !== undefined) throw new LabError('INVALID_ARGUMENT', '--stage applies only to expose.');
+    if (values.config === '') throw new LabError('INVALID_CONFIG_PATH', 'Use a nonempty --config file path.', 'failed');
     const raw = values.config ? await readFile(values.config, 'utf8') : environment.LAB_CONFIG_JSON ?? await readFile('config/lab.json', 'utf8');
     const map = z.object({ staging: targetSchema.optional(), live: targetSchema.optional() }).strict().parse(JSON.parse(raw));
     if (map.staging && map.live && map.staging.environmentId === map.live.environmentId) throw new LabError('ENVIRONMENT_COLLISION', 'Staging and live must use separate Railway environments.');

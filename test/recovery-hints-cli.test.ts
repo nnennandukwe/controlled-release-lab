@@ -6,7 +6,7 @@ import { join, relative, resolve } from 'node:path';
 import { expect, it } from 'vitest';
 import { readLockOwner, acquireLock, Journal, loadRecord, type EvidenceRecord } from '../tools/evidence.js';
 
-it.each([['blocked', 'snapshot'], ['verified', 'snapshot'], ['blocked', 'scope'], ['verified', 'scope']] as const)('retries a failed %s-owner %s read using the emitted CLI command and custom config', async (outcome, phase) => {
+it.each([['blocked', 'snapshot', 'file'], ['verified', 'snapshot', 'file'], ['blocked', 'scope', 'file'], ['verified', 'scope', 'file'], ['blocked', 'snapshot', 'environment'], ['verified', 'snapshot', 'environment'], ['blocked', 'scope', 'environment'], ['verified', 'scope', 'environment']] as const)('retries a failed %s-owner %s read using the emitted CLI command and %s config', async (outcome, phase, configuration) => {
   await mkdir(resolve('work'), { recursive: true });
   const temporary = await mkdtemp(join(resolve('work'), 'operator-hints-'));
   const root = join(temporary, "operator's retained work"), config = join(temporary, "operator's target map.json");
@@ -41,10 +41,10 @@ it.each([['blocked', 'snapshot'], ['verified', 'snapshot'], ['blocked', 'scope']
   await new Promise<void>(accept => server.listen(0, '127.0.0.1', accept));
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing fixture address');
   const cliCwd = resolve('test');
-  const environment = { PATH: process.env.PATH, NODE_OPTIONS: `--import tsx --import ${JSON.stringify(resolve('test/helpers/local-operator-transport.ts'))}`, RAILWAY_PROJECT_TOKEN: 'synthetic-local-token', LD_READ_TOKEN: 'synthetic-local-reader', OPERATOR_FIXTURE_URL: `http://127.0.0.1:${address.port}` };
+  const environment = { LAB_CONFIG_JSON: configuration === 'environment' ? JSON.stringify({ staging: target }) : undefined, PATH: process.env.PATH, NODE_OPTIONS: `--import tsx --import ${JSON.stringify(resolve('test/helpers/local-operator-transport.ts'))}`, RAILWAY_PROJECT_TOKEN: 'synthetic-local-token', LD_READ_TOKEN: 'synthetic-local-reader', OPERATOR_FIXTURE_URL: `http://127.0.0.1:${address.port}` };
   const children: ChildProcess[] = [];
-  const run = (executable: string, args: string[]) => {
-    const child = spawn(executable, args, { cwd: cliCwd, env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
+  const run = (executable: string, args: string[], dropConfig = false) => {
+    const child = spawn(executable, args, { cwd: cliCwd, env: { ...environment, ...(dropConfig ? { LAB_CONFIG_JSON: undefined } : {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
     children.push(child);
     let stdout = '', stderr = '';
     child.stdout!.on('data', chunk => { stdout += String(chunk); }); child.stderr!.on('data', chunk => { stderr += String(chunk); });
@@ -52,19 +52,19 @@ it.each([['blocked', 'snapshot'], ['verified', 'snapshot'], ['blocked', 'scope']
   };
   const output = (stdout: string) => JSON.parse(stdout.trim().split('\n').at(-1)!);
   try {
-    const failed = await run(process.execPath, ['--import', 'tsx', resolve('tools/lab.ts'), 'reconcile', '--target', 'staging', '--attempt', journal.attemptId, '--work-dir', relative(cliCwd, root), '--config', relative(cliCwd, config)]);
+    const failed = await run(process.execPath, ['--import', 'tsx', resolve('tools/lab.ts'), 'reconcile', '--target', 'staging', '--attempt', journal.attemptId, '--work-dir', relative(cliCwd, root), ...(configuration === 'file' ? ['--config', relative(cliCwd, config)] : [])]);
     expect(failed.code, failed.stderr + failed.stdout).toBe(2);
     const result = output(failed.stdout);
     expect(result.reasonCodes).toEqual(['PROVIDER_HTTP']);
     if (phase === 'snapshot') expect(await loadRecord(resolve(cliCwd, result.recordPath))).toMatchObject({ outcome: 'blocked', target });
     else expect(result.recordPath).toBeUndefined();
     expect(await readLockOwner(root, target)).toEqual(expect.any(String));
-    const command = (result.recoveryInstruction as string).match(/ Run (npm run lab -- .+)\.$/)?.[1];
+    const command = (result.recoveryInstruction as string).match(/ Run ((?:LAB_CONFIG_JSON=.+ )?npm run lab -- .+)\.$/)?.[1];
     expect(command, result.recoveryInstruction).toBeDefined();
     expect(command).toContain(`--attempt ${journal.attemptId}`);
-    expect(command).toContain('--config ');
+    expect(command).toContain(configuration === 'file' ? '--config ' : 'LAB_CONFIG_JSON=');
     rejectSnapshot = outcome !== 'blocked';
-    const retried = await run('/bin/sh', ['-c', command!]);
+    const retried = await run('/bin/sh', ['-c', command!], true);
     expect(retried.code, retried.stderr + retried.stdout).toBe(2);
     const retryResult = output(retried.stdout);
     expect(retryResult.reasonCodes).toEqual([outcome === 'blocked' ? 'COMPLETED_ATTEMPT_CLEANUP' : 'PROVIDER_HTTP']);

@@ -173,7 +173,7 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
     before = await flags.snapshot();
   } catch (error) {
     if (!prior) throw error;
-    throw reconciliationPreflightError(error, reconciliationCommand('reconcile-exposure', input.targetName, prior.record.attemptId, root));
+    throw reconciliationPreflightError(error, reconciliationCommand('reconcile-exposure', input.targetName, prior.record.attemptId, root, undefined, request.target));
   }
   if (!prior && before.digest !== request.before.digest) throw new LabError('FLAG_STATE_CHANGED', 'The flag changed since request resolution. No PATCH was sent.');
   if (mutating && !input.apply) return { outcome: 'preview', attemptId: undefined, recoveryInstruction: undefined, cleanupWarning: undefined, reasonCodes: ['APPLY_REQUIRED'], target: request.targetName, stage: request.stage, requestDigest: verified.requestDigest, recordPath: '' };
@@ -230,7 +230,7 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
     if (prior && (record.outcome === 'verified' || record.outcome === 'blocked' && measuredStableState || record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP'))) await releaseReconciledLock(root, request.target, prior.record.attemptId);
     if (release && (!effectAttempted || record.outcome !== 'unknown_outcome')) await release();
   } catch (error) {
-    cleanupWarning = lockCleanupWarning(error, recordPath, reconciliationCommand('reconcile-exposure', request.targetName, prior?.record.attemptId ?? journal.attemptId, root));
+    cleanupWarning = lockCleanupWarning(error, recordPath, reconciliationCommand('reconcile-exposure', request.targetName, prior?.record.attemptId ?? journal.attemptId, root, undefined, request.target));
   }
   return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, attemptId: journal.attemptId, recordPath, cleanupWarning };
 }

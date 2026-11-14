@@ -800,3 +800,10 @@ resolve a new authorized operation. Unknown or conflicting markers require
 inspection of preserved evidence before repair. This procedure preserves metadata
 and notes while restoring the controlled namespace; the operator doesn't remove
 unidentified files automatically.
+
+
+A retry without an explicit config file includes a shell-quoted `LAB_CONFIG_JSON`
+assignment containing only its validated target IDs and origin. It preserves
+selection when copied to another shell or used after the original environment
+map's gone. Explicit file paths remain absolute. Provide credentials through the
+ordinary secret store. An empty `--config` argument fails before provider access.

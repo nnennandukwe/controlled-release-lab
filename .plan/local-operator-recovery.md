@@ -307,3 +307,15 @@ removal violates the existing ownership/preservation invariant. Tests preserve b
 relocated bytes, prove the original owner remains while held, then demonstrate
 normal release/acquisition after the identified metadata is moved. Conflicting or
 unidentified owner markers remain rejected for investigation.
+
+## Target selection across shells
+
+Local reviewfca02556 and7caa57e5 identified two remaining configuration cases.
+Empty `--config` is rejected before provider access. For recovery without an
+explicit file, commands carry a shell-quoted map containing only the validated
+selected target IDs and origin. Credentials stay in the operator's secret store.
+This applies to deployment and exposure read-only hints and retains explicit-file
+behavior. Eight real CLI cases cover file/environment selection, scope/snapshot
+failure and completed/verified owners; environment retries drop the original map
+before executing the emitted command. The target schema excludes credential,
+path, query and fragment fields from the configured origin.

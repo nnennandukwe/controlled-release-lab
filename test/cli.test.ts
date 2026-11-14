@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { runCli } from '../tools/lab.js';
 
 it('makes help usable without credentials or configuration', async () => {
@@ -31,4 +31,15 @@ it.each([
  const output:string[]=[];
  expect(await runCli([...args,'--rehearse-response-loss'],{},text=>output.push(text))).toBe(2);
  expect(JSON.parse(output.join('')).reasonCodes).toEqual(['REHEARSAL_TARGET_REJECTED']);
+});
+
+it('rejects an empty config argument before provider access even with an environment map', async () => {
+  const output: string[] = [];
+  const transport = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('fixture provider sentinel'));
+  try {
+    const target = { projectId: '11111111-1111-4111-8111-111111111111', serviceId: '22222222-2222-4222-8222-222222222222', environmentId: '33333333-3333-4333-8333-333333333333', url: 'https://example.up.railway.app' };
+    expect(await runCli(['doctor', '--target', 'staging', '--config', ''], { LAB_CONFIG_JSON: JSON.stringify({ staging: target }), RAILWAY_PROJECT_TOKEN: 'synthetic-fixture-token' }, text => output.push(text), () => {})).toBe(1);
+    expect(JSON.parse(output.join('')).reasonCodes).toEqual(['INVALID_CONFIG_PATH']);
+    expect(transport).not.toHaveBeenCalled();
+  } finally { transport.mockRestore(); }
 });

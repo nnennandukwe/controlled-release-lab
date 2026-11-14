@@ -95,9 +95,10 @@ export async function ownsLock(root: string, target: Target, attemptId: string) 
   return await readLockOwner(root, target) === attemptId;
 }
 
-export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposure', target: 'staging' | 'live', attempt: string, root: string, configPath?: string) {
-  const quote = (path: string) => `'${resolve(path).replaceAll("'", "'\\''")}'`;
-  return `npm run lab -- ${operation} --target ${target} --attempt ${attempt} --work-dir ${quote(root)}${configPath === undefined ? '' : ` --config ${quote(configPath)}`}`;
+export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposure', target: 'staging' | 'live', attempt: string, root: string, configPath: string | undefined, targetConfig: Target) {
+  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  const selection = configPath === undefined ? `LAB_CONFIG_JSON=${quote(JSON.stringify({ [target]: targetSchema.parse(targetConfig) }))} ` : '';
+  return `${selection}npm run lab -- ${operation} --target ${target} --attempt ${attempt} --work-dir ${quote(resolve(root))}${configPath === undefined ? '' : ` --config ${quote(resolve(configPath))}`}`;
 }
 
 export function reconciliationPreflightError(error: unknown, command: string) {

@@ -38,7 +38,7 @@ export async function execute(request: Operation, hosting: Hosting, root: string
   try { await hosting.assertScope(request.target); }
   catch (error) {
     if (request.operation !== 'reconcile') throw error;
-    throw reconciliationPreflightError(error, reconciliationCommand('reconcile', request.targetName, request.attempt!, root, request.configPath));
+    throw reconciliationPreflightError(error, reconciliationCommand('reconcile', request.targetName, request.attempt!, root, request.configPath, request.target));
   }
   if (mutating && !request.apply) {
     await hosting.snapshot();
@@ -159,7 +159,7 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     const failure = error instanceof LabError ? error : new LabError('EXECUTION_ERROR', 'Execution or evidence persistence failed. Inspect the retained attempt files and reconcile any mutation.');
     record.outcome = completedReadback ? 'blocked' : providerMutationAttempted && failure.outcome !== 'failed' ? 'unknown_outcome' : failure.outcome;
     record.reasonCodes = [failure.code, ...(completedReadback && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' ? ['COMPLETED_ATTEMPT_CLEANUP'] : [])];
-    record.recoveryInstruction = `${failure.message}${completedReadback ? ' The earlier verified attempt is complete. This blocked readback clears only its retained lock; resolve fresh authority for recovery.' : ''}${!record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP') && (request.operation === 'reconcile' || record.outcome === 'unknown_outcome') ? ` Run ${reconciliationCommand('reconcile', request.targetName, request.operation === 'reconcile' ? request.attempt! : journal.attemptId, root, request.configPath)}.` : ''}`;
+    record.recoveryInstruction = `${failure.message}${completedReadback ? ' The earlier verified attempt is complete. This blocked readback clears only its retained lock; resolve fresh authority for recovery.' : ''}${!record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP') && (request.operation === 'reconcile' || record.outcome === 'unknown_outcome') ? ` Run ${reconciliationCommand('reconcile', request.targetName, request.operation === 'reconcile' ? request.attempt! : journal.attemptId, root, request.configPath, request.target)}.` : ''}`;
   }
   let recordPath: string;
   try {
@@ -174,7 +174,7 @@ export async function execute(request: Operation, hosting: Hosting, root: string
     if (request.operation === 'reconcile' && (record.outcome === 'verified' || record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP'))) await releaseReconciledLock(root, request.target, request.attempt!);
     if (release && (!providerMutationAttempted || record.outcome !== 'unknown_outcome')) await release();
   } catch (error) {
-    cleanupWarning = lockCleanupWarning(error, recordPath, reconciliationCommand('reconcile', request.targetName, request.operation === 'reconcile' ? request.attempt! : journal.attemptId, root, request.configPath));
+    cleanupWarning = lockCleanupWarning(error, recordPath, reconciliationCommand('reconcile', request.targetName, request.operation === 'reconcile' ? request.attempt! : journal.attemptId, root, request.configPath, request.target));
   }
   return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, recordPath, attemptId: journal.attemptId, cleanupWarning };
 }
