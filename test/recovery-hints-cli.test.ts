@@ -84,7 +84,7 @@ it.each([['blocked', 'snapshot', 'file'], ['verified', 'snapshot', 'file'], ['bl
       const forwarded = workflowArguments(inputs);
       expect(forwarded).toEqual(['reconcile', '--target', 'staging', '--attempt', journal.attemptId]);
       activeRoot = join(temporary, 'restored-work'); await cp(root, activeRoot, { recursive: true, errorOnExist: true, force: false });
-      retried = await run(process.execPath, ['--import', 'tsx', resolve('tools/lab.ts'), ...forwarded, '--work-dir', activeRoot], true, { LAB_CONFIG_JSON: JSON.stringify({ staging: target }) });
+      retried = await run(process.execPath, ['--import', 'tsx', resolve('tools/lab.ts'), ...forwarded, '--work-dir', activeRoot], true, { LAB_CONFIG_JSON: JSON.stringify({ staging: { ...target, environmentId: randomUUID() } }) });
     } else retried = await run('/bin/sh', ['-c', command!], true);
     expect(retried.code, retried.stderr + retried.stdout).toBe(2);
     const retryResult = output(retried.stdout);

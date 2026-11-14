@@ -815,3 +815,11 @@ Unexpected hosted-check failures report bounded error types, codes, cause codes
 and a source file/line in stderr. Arbitrary exception messages and full stacks
 aren't printed. Inspect those diagnostics alongside retained stdout/stderr and
 attempt journals; provider transport causes stay available for the bounded report.
+
+
+Main Operate lab reconciliation bootstraps its provider target from the validated
+retained attempt, preserving its original environment when the current target map
+changes. Scope and evidence verification still run before any effects. Local
+explicit target/config selection keeps its existing checks. Retained exposure
+verification failures include the original-owner command and preserve its lock;
+retrying repeats provenance verification before provider preflight.

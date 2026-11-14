@@ -133,7 +133,7 @@ export async function loadExposureRecord(path: string) {
   if ((await readFile(`${path}.sha256`, 'utf8')).trim() !== sha256(bytes)) throw new LabError('EXPOSURE_RECORD_CHANGED', 'Restore intact exposure state before continuing.');
   return exposureRecordSchema.parse(JSON.parse(bytes.toString()));
 }
-async function loadExposureAttempt(root: string, attempt: string) {
+export async function loadExposureAttempt(root: string, attempt: string) {
   z.string().uuid().parse(attempt); const directory = join(root, 'exposure', 'attempts', attempt);
   try {
     const record = await loadExposureRecord(join(directory, 'exposure-record.json'));
@@ -160,20 +160,21 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
   const terminalCleanup = prior && prior.record.outcome !== 'unknown_outcome' && prior.record.outcome !== 'verified';
   const completedVerified = prior?.record.outcome === 'verified';
   if (!directory) throw new LabError('EXPOSURE_PROOF_REQUIRED', 'Use --release-dir with an exact authenticated exposure request.');
-  const verified = await verifyExposureRelease(directory, !!prior), request = verified.request;
-  if (request.targetName !== input.targetName || (!prior && request.operation !== input.operation) || (input.operation === 'expose' && request.stage !== input.stage)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'Command and resolved exposure request disagree.');
-  if (!prior && (request.purpose === 'response-loss-rehearsal') !== (input.rehearseResponseLoss === true)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'The approved request and command must agree on the response-loss rehearsal.');
-  if (prior && (verified.requestDigest !== prior.record.requestDigest || fingerprint(request) !== fingerprint(prior.record.request))) throw new LabError('EXPOSURE_RECORD_CHANGED', 'The prior intent and retained request disagree.');
-  const subject = exposureSubject(request);
+  let verified: Awaited<ReturnType<typeof verifyExposureRelease>>, request: z.infer<typeof exposureRequestSchema>, subject: ReturnType<typeof exposureSubject>;
   let beforeProvider: Snapshot, before: FlagSnapshot;
   try {
+    verified = await verifyExposureRelease(directory, !!prior); request = verified.request;
+    if (request.targetName !== input.targetName || (!prior && request.operation !== input.operation) || (input.operation === 'expose' && request.stage !== input.stage)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'Command and resolved exposure request disagree.');
+    if (!prior && (request.purpose === 'response-loss-rehearsal') !== (input.rehearseResponseLoss === true)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'The approved request and command must agree on the response-loss rehearsal.');
+    if (prior && (verified.requestDigest !== prior.record.requestDigest || fingerprint(request) !== fingerprint(prior.record.request))) throw new LabError('EXPOSURE_RECORD_CHANGED', 'The prior intent and retained request disagree.');
+    subject = exposureSubject(request);
     await hosting.assertScope(request.target); await flags.assertScope();
     beforeProvider = await hosting.snapshot();
     if (!terminalCleanup && !completedVerified) assertServing(beforeProvider, subject);
     before = await flags.snapshot();
   } catch (error) {
     if (!prior) throw error;
-    throw reconciliationPreflightError(error, reconciliationCommand('reconcile-exposure', input.targetName, prior.record.attemptId, root, undefined, request.target, input.recoveryRepository));
+    throw reconciliationPreflightError(error, reconciliationCommand('reconcile-exposure', input.targetName, prior.record.attemptId, root, undefined, prior.record.request.target, input.recoveryRepository));
   }
   if (!prior && before.digest !== request.before.digest) throw new LabError('FLAG_STATE_CHANGED', 'The flag changed since request resolution. No PATCH was sent.');
   if (mutating && !input.apply) return { outcome: 'preview', attemptId: undefined, recoveryInstruction: undefined, cleanupWarning: undefined, reasonCodes: ['APPLY_REQUIRED'], target: request.targetName, stage: request.stage, requestDigest: verified.requestDigest, recordPath: '' };
@@ -219,7 +220,7 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
     const failure = error instanceof LabError ? error : new LabError('EXPOSURE_EXECUTION_ERROR', 'Exposure execution or persistence failed. Inspect retained evidence.');
     if (completedReadback) record.featureProof = null;
     record.outcome = completedReadback ? 'blocked' : (effectAttempted || prior) && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' && !(measuredStableState && ['EXPOSURE_HOLD', 'EXPOSURE_WINDOW'].includes(failure.code)) ? 'unknown_outcome' : failure.outcome;
-    record.reasonCodes = [failure.code, ...(completedReadback && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' ? ['COMPLETED_ATTEMPT_CLEANUP'] : [])]; record.recoveryInstruction = `${failure.message}${completedReadback ? ' The earlier verified attempt is complete. This blocked readback clears only its retained lock; resolve fresh authority for recovery.' : ''}${record.outcome === 'blocked' && measuredStableState ? ' Desired flag state is known but health is not verified. Independently authorize disable; no expansion evidence was issued.' : ''}${record.outcome === 'unknown_outcome' ? ` Reconcile exposure attempt ${prior?.record.attemptId ?? journal.attemptId}.` : ''}`;
+    record.reasonCodes = [failure.code, ...(completedReadback && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' ? ['COMPLETED_ATTEMPT_CLEANUP'] : [])]; record.recoveryInstruction = `${failure.message}${completedReadback ? ' The earlier verified attempt is complete. This blocked readback clears only its retained lock; resolve fresh authority for recovery.' : ''}${record.outcome === 'blocked' && measuredStableState ? ' Desired flag state is known but health is not verified. Independently authorize disable; no expansion evidence was issued.' : ''}${record.outcome === 'unknown_outcome' ? ` Run ${reconciliationCommand('reconcile-exposure', request.targetName, prior?.record.attemptId ?? journal.attemptId, root, undefined, request.target, input.recoveryRepository)}.` : ''}`;
   }
   let recordPath: string;
   try {

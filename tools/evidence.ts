@@ -107,7 +107,7 @@ export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposu
 }
 
 export function reconciliationPreflightError(error: unknown, command: string) {
-  const failure = error instanceof LabError ? error : new LabError('RECONCILIATION_PREFLIGHT_FAILED', 'Read-only provider preflight failed. Resolve provider access or state before retrying.', 'blocked', { cause: error });
+  const failure = error instanceof LabError ? error : new LabError('RECONCILIATION_PREFLIGHT_FAILED', 'Read-only recovery preflight failed. Repair access or retained evidence before retrying.', 'blocked', { cause: error });
   failure.recoveryCommand = command;
   return failure;
 }

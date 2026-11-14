@@ -4,10 +4,10 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
-import { LabError, targetSchema } from './evidence.js';
+import { LabError, loadAttempt, targetSchema } from './evidence.js';
 import { execute, type Operation } from './operations.js';
 import { rehearseRecovery } from './recovery-rehearsal.js';
-import { executeExposure, verifyExposureObservation, type ExposureOperation } from './exposure.js';
+import { executeExposure, loadExposureAttempt, verifyExposureObservation, type ExposureOperation } from './exposure.js';
 import { rehearseExposureRecovery } from './exposure-rehearsal.js';
 import { LaunchDarkly, enabledStageSchema } from './launchdarkly.js';
 import { Railway } from './railway.js';
@@ -111,11 +111,23 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       const allowed = ['target', 'work-dir', ...(operation === 'reconcile-exposure' ? ['attempt'] : ['release-dir']), ...(['expose', 'disable'].includes(operation) ? ['apply'] : []), ...(operation === 'expose' ? ['stage', 'rehearse-response-loss'] : [])];
       if (Object.keys(values).some(key => !allowed.includes(key))) throw new LabError('INVALID_EXPOSURE_ARGUMENT', 'Exposure accepts only its documented request, stage and work-directory arguments.');
     } else if (values.stage !== undefined) throw new LabError('INVALID_ARGUMENT', '--stage applies only to expose.');
+    const recoveryRepository = environment.GITHUB_ACTIONS === 'true' && environment.GITHUB_REPOSITORY === policy.repository && environment.GITHUB_REF === 'refs/heads/main' && environment.GITHUB_WORKFLOW_REF === `${policy.repository}/.github/workflows/operate.yml@refs/heads/main` ? policy.repository : undefined;
     if (values.config === '') throw new LabError('INVALID_CONFIG_PATH', 'Use a nonempty --config file path.', 'failed');
-    const raw = values.config ? await readFile(values.config, 'utf8') : environment.LAB_CONFIG_JSON ?? await readFile('config/lab.json', 'utf8');
-    const map = z.object({ staging: targetSchema.optional(), live: targetSchema.optional() }).strict().parse(JSON.parse(raw));
-    if (map.staging && map.live && map.staging.environmentId === map.live.environmentId) throw new LabError('ENVIRONMENT_COLLISION', 'Staging and live must use separate Railway environments.');
-    const target = targetSchema.parse(map[targetName]);
+    let target: z.infer<typeof targetSchema>;
+    if (recoveryRepository && operation === 'reconcile') {
+      const prior = await loadAttempt(values['work-dir'] ?? 'work', z.string().uuid().parse(values.attempt));
+      if (prior.targetName !== targetName) throw new LabError('RESTORE_TARGET_MISMATCH', 'The retained attempt belongs to another target.');
+      target = prior.target;
+    } else if (recoveryRepository && operation === 'reconcile-exposure') {
+      const prior = await loadExposureAttempt(values['work-dir'] ?? 'work', z.string().uuid().parse(values.attempt));
+      if (prior.record.request.targetName !== targetName) throw new LabError('RESTORE_TARGET_MISMATCH', 'The retained attempt belongs to another target.');
+      target = prior.record.request.target;
+    } else {
+      const raw = values.config ? await readFile(values.config, 'utf8') : environment.LAB_CONFIG_JSON ?? await readFile('config/lab.json', 'utf8');
+      const map = z.object({ staging: targetSchema.optional(), live: targetSchema.optional() }).strict().parse(JSON.parse(raw));
+      if (map.staging && map.live && map.staging.environmentId === map.live.environmentId) throw new LabError('ENVIRONMENT_COLLISION', 'Staging and live must use separate Railway environments.');
+      target = targetSchema.parse(map[targetName]);
+    }
     const hosting = new Railway(environment.RAILWAY_PROJECT_TOKEN ?? '', target);
     stderr(`${operation}: checking ${targetName}\n`);
     heartbeat = setInterval(() => stderr(`${operation}: waiting for bounded checks...\n`), 10000);
@@ -125,7 +137,6 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       return 0;
     }
     const flags = new LaunchDarkly(environment.LD_READ_TOKEN ?? '', isExposure && values.apply ? environment.LD_MANAGEMENT_TOKEN : undefined, targetName);
-    const recoveryRepository = environment.GITHUB_ACTIONS === 'true' && environment.GITHUB_REPOSITORY === policy.repository && environment.GITHUB_REF === 'refs/heads/main' && environment.GITHUB_WORKFLOW_REF === `${policy.repository}/.github/workflows/operate.yml@refs/heads/main` ? policy.repository : undefined;
     if (isExposure) {
       const exposure: ExposureOperation = { operation: operation as ExposureOperation['operation'], targetName, apply: values.apply ?? false, rehearseResponseLoss: values['rehearse-response-loss'] ?? false };
       if (recoveryRepository) exposure.recoveryRepository = recoveryRepository;

@@ -342,3 +342,19 @@ exposing an error's synthetic secret text.
 Review8ddfb59b requires the corrected producer receipts to be inspectable. The
 latest clean-source public outputs will be copied unchanged and linked, preserving
 earlier confounded observations and their documented limits.
+
+## Retained workflow target and exposure verification failures
+
+Locala86684e92 and nativea7738b8a identified two remaining read-only bootstrap
+boundaries. A main Operate lab reconciliation will load the checksummed,
+attempt-bound retained target before constructing its provider adapter, so a
+changed current LAB_CONFIG_JSON can't redirect recovery. Mutating/local target
+selection remains unchanged, and provider scope/provenance checks still precede
+effects. Two workflow runtime cases now change the map before restored recovery.
+
+Exposure's retained-release verification and subject checks enter the same typed
+preflight boundary as provider/flag reads. Failure preserves the original code,
+owner and retry command without new journal/eligibility; a retry repeats all
+verification. Two verifier failure/recovery cases prove zero provider preflight
+while verification fails and preserved original bytes, followed by blocked cleanup.
+Unknown outcomes after journaling also name the runnable original-owner command.

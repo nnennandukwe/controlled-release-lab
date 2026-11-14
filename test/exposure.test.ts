@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as attestation from '../tools/attestation.js';
 import { rehearseExposureRecovery } from '../tools/exposure-rehearsal.js';
 import { createExposureDiagnostic, inspectExposureDiagnostic } from '../tools/exposure-diagnostic.js';
 import { randomUUID } from 'node:crypto';
@@ -422,3 +423,22 @@ it.each(['-intent.json','-before-provider.json','-before-flag.json'])('retains a
  const recovered=await executeExposure({operation:'reconcile-exposure',targetName:'staging',attempt:original.attemptId!},scenario.hosting,scenario.flags,work,scenario.transport);
  expect(recovered.outcome).toBe('verified');expect(await readLockOwner(work,scenario.request.target)).toBeUndefined();expect(scenario.patches()).toBe(1);
 },30000);
+
+it.each(['local','workflow'])('keeps the original exposure command after retained evidence verification fails in %s recovery',async context=>{
+ const scenario=await fixture({conflict:true}),work=join(scenario.root,'work'),nativeUnlink=fs.unlink;
+ const cleanup=vi.spyOn(fs,'unlink').mockImplementation(async path=>{
+  if(String(path).endsWith('.lock'))throw Object.assign(new Error('fixture retained terminal lock'),{code:'EACCES'});
+  return nativeUnlink(path);
+ });
+ const original=await executeExposure(scenario.input,scenario.hosting,scenario.flags,work,scenario.transport);
+ cleanup.mockRestore();expect(original.outcome).toBe('blocked');
+ const bytes=await readFile(original.recordPath);
+ const hosting=vi.spyOn(scenario.hosting,'assertScope');hosting.mockClear();
+ const verifier=vi.spyOn(attestation,'verifyArtifact').mockRejectedValueOnce(new LabError('PROVENANCE_UNAVAILABLE','fixture verifier unavailable'));
+ const input={operation:'reconcile-exposure' as const,targetName:'staging' as const,attempt:original.attemptId!,...(context==='workflow'?{recoveryRepository:policy.repository}:{})};
+ await expect(executeExposure(input,scenario.hosting,scenario.flags,work,scenario.transport)).rejects.toMatchObject({code:'PROVENANCE_UNAVAILABLE',recoveryCommand:expect.stringContaining(context==='workflow'?'gh workflow run operate.yml':'npm run lab -- reconcile-exposure')});
+ expect(hosting).not.toHaveBeenCalled();expect(await readLockOwner(work,scenario.request.target)).toBe(original.attemptId);expect(await readFile(original.recordPath)).toEqual(bytes);
+ verifier.mockRestore();
+ const recovered=await executeExposure(input,scenario.hosting,scenario.flags,work,scenario.transport);
+ expect(recovered.reasonCodes).toEqual(['COMPLETED_ATTEMPT_CLEANUP']);expect(await readLockOwner(work,scenario.request.target)).toBeUndefined();expect(scenario.patches()).toBe(1);
+});
