@@ -1,6 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fingerprint, Journal, LabError } from './evidence.js';
+import { fingerprint, Journal, LabError, readLockOwner } from './evidence.js';
 import { executeExposure, loadExposureRecord, type ExposureOperation } from './exposure.js';
 import type { FlagProvider } from './launchdarkly.js';
 import type { Hosting } from './railway.js';
@@ -25,15 +25,13 @@ export async function rehearseExposureRecovery(input: ExposureOperation, hosting
   if (original.outcome !== 'unknown_outcome' || !original.attemptId || !original.reasonCodes.includes('REHEARSAL_RESPONSE_LOST')) throw new LabError('REHEARSAL_NOT_EXERCISED', `The fixture did not execute as expected. Inspect ${original.recordPath} and reconcile any uncertain effect.`, original.outcome === 'unknown_outcome' ? 'unknown_outcome' : 'blocked');
   const originalBytes = await readFile(original.recordPath), originalRecord = await loadExposureRecord(original.recordPath);
   const target = originalRecord.request.target;
-  const lock = join(root, 'locks', `${fingerprint([target.projectId, target.serviceId, target.environmentId])}.lock`);
   const intentFiles = await readdir(join(root, 'exposure', 'attempts', original.attemptId));
-  if (originalRecord.acknowledged || !originalRecord.submitted || await readFile(lock, 'utf8') !== original.attemptId || !intentFiles.some(name => name.endsWith('-intent.json'))) throw new LabError('REHEARSAL_STATE_FAILED', 'The uncertain flag attempt must preserve its intent and lock without adopting the discarded response.', 'unknown_outcome');
+  if (originalRecord.acknowledged || !originalRecord.submitted || await readLockOwner(root, target) !== original.attemptId || !intentFiles.some(name => name.endsWith('-intent.json'))) throw new LabError('REHEARSAL_STATE_FAILED', 'The uncertain flag attempt must preserve its intent and lock without adopting the discarded response.', 'unknown_outcome');
   await fixture.append('unknown-outcome-preserved', { originalAttemptId: original.attemptId, originalRecordDigest: fingerprint(originalBytes.toString()), updateCalls });
   // No hidden provider response is passed into recovery, and no write is allowed.
-  const recovered = await executeExposure({ operation: 'reconcile-exposure', targetName: 'staging', attempt: original.attemptId }, hosting, wrapped, root, transport);
+  const recovered = await executeExposure({ operation: 'reconcile-exposure', targetName: 'staging', attempt: original.attemptId, ...(input.recoveryRepository === undefined ? {} : { recoveryRepository: input.recoveryRepository }) }, hosting, wrapped, root, transport);
   const originalRecordUnchanged = originalBytes.equals(await readFile(original.recordPath));
-  let lockReleased = false;
-  try { await readFile(lock); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; lockReleased = true; }
+  const lockReleased = await readLockOwner(root, target) === undefined;
   if (!originalRecordUnchanged || updateCalls !== 1 || (recovered.outcome === 'verified' && !lockReleased)) throw new LabError('REHEARSAL_STATE_FAILED', 'Recovery changed history, repeated a flag effect, or left a verified operation locked.', 'unknown_outcome');
   const result = { ...recovered, rehearsal: { fixture: 'lost-flag-response', simulatedFailure: true, originalAttemptId: original.attemptId, updateCalls, originalRecordUnchanged, lockReleased } };
   await fixture.append('result', result);

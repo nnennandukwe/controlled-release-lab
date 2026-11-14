@@ -57,9 +57,9 @@ export async function finalizeExposure() {
   await verifyExposureRelease(directory);
 }
 export async function sealExposure() {
-  const result = z.object({ outcome: z.string(), recordPath: z.string().optional(), operator: producerSchema, operation: z.string() }).parse(JSON.parse(await readFile('work/last-result.json', 'utf8')));
+  const result = z.object({ outcome: z.string(), recordPath: z.string().optional(), cleanupWarning: z.unknown().optional(), operator: producerSchema, operation: z.string() }).parse(JSON.parse(await readFile('work/last-result.json', 'utf8')));
   if (fingerprint(result.operator) !== fingerprint(currentOperator()) || result.operation !== process.env.LAB_OPERATION) throw new LabError('STALE_OPERATION_RESULT', 'The result belongs to another workflow invocation; no evidence was sealed.');
-  if (!['verified', 'blocked'].includes(result.outcome) || !result.recordPath) { await output('sign', 'false'); return; }
+  if (result.cleanupWarning !== undefined || !['verified', 'blocked'].includes(result.outcome) || !result.recordPath) { await output('sign', 'false'); return; }
   const record = await loadExposureRecord(result.recordPath);
   if (record.outcome !== result.outcome || record.request.targetName !== process.env.LAB_TARGET) throw new LabError('STALE_OPERATION_RESULT', 'Result and record disagree about the observed operation.');
   if (record.operation !== result.operation && !(process.env.LAB_REHEARSE_RESPONSE_LOSS === 'true' && result.operation === 'expose' && record.operation === 'reconcile-exposure' && record.request.purpose === 'response-loss-rehearsal')) throw new LabError('STALE_OPERATION_RESULT', 'Result and record operations disagree.');

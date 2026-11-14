@@ -8,10 +8,11 @@ import { expect, test } from 'vitest';
 const entry = fileURLToPath(new URL('../tools/release-workflow.ts', import.meta.url));
 const loader = import.meta.resolve('tsx');
 
-function command(action: string, operation: string, check: (result: ReturnType<typeof spawnSync>, output: string) => void) {
+function command(action: string, operation: string, check: (result: ReturnType<typeof spawnSync>, output: string) => void, prepare?: (directory: string) => void) {
   const directory = mkdtempSync(join(tmpdir(), 'release-workflow-cli-'));
   const output = join(directory, 'output');
   try {
+    prepare?.(directory);
     const result = spawnSync(process.execPath, ['--import', loader, entry, action], {
       cwd: directory, encoding: 'utf8', timeout: 15_000,
       // No inherited provider credentials: these paths must finish without network access.
@@ -53,4 +54,14 @@ test('a failed new operator invocation removes the previous result before valida
     expect(result.status).toBe(1);expect(result.error).toBeUndefined();
     expect(existsSync(join(directory, 'work/last-result.json'))).toBe(false);
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test.each(['deploy', 'observe', 'rollback', 'reconcile'])('the seal CLI withholds %s evidence while lock cleanup is pending', operation => {
+  command('seal', operation, (result, output) => {
+    expect(result.status).toBe(0);expect(readFileSync(output, 'utf8')).toBe('sign=false\n');
+    expect(existsSync(join(output, '..', 'artifacts/observation'))).toBe(false);
+  }, directory => {
+    mkdirSync(join(directory, 'work'));
+    writeFileSync(join(directory, 'work/last-result.json'), JSON.stringify({ outcome: 'verified', recordPath: 'missing-record.json', cleanupWarning: { code: 'LOCK_CLEANUP_REQUIRED', causeCode: 'EIO' } }));
+  });
 });

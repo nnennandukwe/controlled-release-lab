@@ -1,15 +1,15 @@
 import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { acquireLock, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, releaseReconciledLock, targetSchema } from './evidence.js';
-import { flagSnapshotSchema, desiredFlagState, flagStateSchema, validateFlagSnapshot, type FlagProvider } from './launchdarkly.js';
+import { acquireLock, assertAttemptIdentity, changeReferenceSchema, fingerprint, imageSchema, Journal, LabError, lockCleanupWarning, ownsLock, reconciliationCommand, reconciliationPreflightError, releaseReconciledLock, targetSchema } from './evidence.js';
+import { flagSnapshotSchema, desiredFlagState, flagStateSchema, validateFlagSnapshot, type FlagProvider, type FlagSnapshot } from './launchdarkly.js';
 import { predecessor, stageSchema, type ExposureStage } from './launchdarkly.js';
 import { exposurePolicyDigest, rosterDigest, originalQueryBaselines, type QueryBaseline, exposurePolicy } from './exposure-observe.js';
-import { featureProofSchema, legacyFeatureProofSchema, assertServing, checkFeatureProof, measureFeatureProof, type FeatureSubject } from './feature-proof.js';
+import { featureProofSchema, legacyFeatureProofSchema, assertServing, checkFeatureProof, hasObservedFeatureFailure, measureFeatureProof, type FeatureSubject } from './feature-proof.js';
 import { boundedFile, preserveFile, policy, policyDigest, producerSchema, protectedRun, assertProducer, controlledDeploymentEvidenceSchema } from './promotion.js';
 import { verifyArtifact, repository } from './attestation.js';
 import { sha256 } from './setup-verifier.js';
-import type { Hosting } from './railway.js';
+import type { Hosting, Snapshot } from './railway.js';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const attachments = ['image.bundle.jsonl', 'deployment-evidence.json', 'deployment.bundle.jsonl', 'prior-exposure.json', 'prior.bundle.jsonl'] as const;
@@ -133,44 +133,63 @@ export async function loadExposureRecord(path: string) {
   if ((await readFile(`${path}.sha256`, 'utf8')).trim() !== sha256(bytes)) throw new LabError('EXPOSURE_RECORD_CHANGED', 'Restore intact exposure state before continuing.');
   return exposureRecordSchema.parse(JSON.parse(bytes.toString()));
 }
-async function loadExposureAttempt(root: string, attempt: string) {
+export async function loadExposureAttempt(root: string, attempt: string) {
   z.string().uuid().parse(attempt); const directory = join(root, 'exposure', 'attempts', attempt);
-  try { return { directory, record: await loadExposureRecord(join(directory, 'exposure-record.json')) }; }
+  try {
+    const record = await loadExposureRecord(join(directory, 'exposure-record.json'));
+    assertAttemptIdentity(record.attemptId, attempt);
+    return { directory, record };
+  }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   const intent = (await readdir(directory)).sort().find(name => name.endsWith('-intent.json'));
   if (!intent) throw new LabError('MISSING_EXPOSURE_INTENT', 'Restore the original durable exposure intent before reconciliation.');
-  return { directory, record: exposureRecordSchema.parse(JSON.parse(await readFile(join(directory, intent), 'utf8')).observation) };
+  const record = exposureRecordSchema.parse(JSON.parse(await readFile(join(directory, intent), 'utf8')).observation);
+  assertAttemptIdentity(record.attemptId, attempt);
+  return { directory, record };
 }
-export type ExposureOperation = { operation: 'expose' | 'disable' | 'observe-exposure' | 'reconcile-exposure'; targetName: 'staging' | 'live'; releaseDir?: string; stage?: Exclude<ExposureStage, 'off'>; apply?: boolean; attempt?: string; rehearseResponseLoss?: boolean };
+export type ExposureOperation = { operation: 'expose' | 'disable' | 'observe-exposure' | 'reconcile-exposure'; targetName: 'staging' | 'live'; recoveryRepository?: string; releaseDir?: string; stage?: Exclude<ExposureStage, 'off'>; apply?: boolean; attempt?: string; rehearseResponseLoss?: boolean };
 export async function executeExposure(input: ExposureOperation, hosting: Hosting, flags: FlagProvider, root: string, transport: typeof fetch = fetch) {
   const mutating = input.operation === 'expose' || input.operation === 'disable';
   if (input.apply && !mutating) throw new LabError('INVALID_EXPOSURE_ARGUMENT', 'Observation and reconciliation are read-only.');
   let prior: Awaited<ReturnType<typeof loadExposureAttempt>> | undefined;
   if (input.operation === 'reconcile-exposure') {
     prior = await loadExposureAttempt(root, z.string().uuid().parse(input.attempt));
-    if (prior.record.outcome !== 'unknown_outcome' || prior.record.request.targetName !== input.targetName) throw new LabError('NOT_UNCERTAIN', 'Reconcile an unknown exposure attempt for this exact target.');
+    if (prior.record.request.targetName !== input.targetName || prior.record.outcome !== 'unknown_outcome' && !await ownsLock(root, prior.record.request.target, input.attempt!)) throw new LabError('NOT_UNCERTAIN', 'Reconcile an unknown exposure attempt or a completed attempt that still owns its environment lock, for this exact target.');
   }
   const directory = prior ? join(prior.directory, 'release') : input.releaseDir;
+  const terminalCleanup = prior && prior.record.outcome !== 'unknown_outcome' && prior.record.outcome !== 'verified';
+  const completedVerified = prior?.record.outcome === 'verified';
   if (!directory) throw new LabError('EXPOSURE_PROOF_REQUIRED', 'Use --release-dir with an exact authenticated exposure request.');
-  const verified = await verifyExposureRelease(directory, !!prior), request = verified.request;
-  if (request.targetName !== input.targetName || (!prior && request.operation !== input.operation) || (input.operation === 'expose' && request.stage !== input.stage)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'Command and resolved exposure request disagree.');
-  if (!prior && (request.purpose === 'response-loss-rehearsal') !== (input.rehearseResponseLoss === true)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'The approved request and command must agree on the response-loss rehearsal.');
-  if (prior && (verified.requestDigest !== prior.record.requestDigest || fingerprint(request) !== fingerprint(prior.record.request))) throw new LabError('EXPOSURE_RECORD_CHANGED', 'The prior intent and retained request disagree.');
-  await hosting.assertScope(); await flags.assertScope();
-  const subject = exposureSubject(request);
-  const beforeProvider = await hosting.snapshot(); assertServing(beforeProvider, subject);
-  const before = await flags.snapshot();
+  let verified: Awaited<ReturnType<typeof verifyExposureRelease>>, request: z.infer<typeof exposureRequestSchema>, subject: ReturnType<typeof exposureSubject>;
+  let beforeProvider: Snapshot, before: FlagSnapshot;
+  try {
+    verified = await verifyExposureRelease(directory, !!prior); request = verified.request;
+    if (request.targetName !== input.targetName || (!prior && request.operation !== input.operation) || (input.operation === 'expose' && request.stage !== input.stage)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'Command and resolved exposure request disagree.');
+    if (!prior && (request.purpose === 'response-loss-rehearsal') !== (input.rehearseResponseLoss === true)) throw new LabError('EXPOSURE_SUBJECT_CHANGED', 'The approved request and command must agree on the response-loss rehearsal.');
+    if (prior && (verified.requestDigest !== prior.record.requestDigest || fingerprint(request) !== fingerprint(prior.record.request))) throw new LabError('EXPOSURE_RECORD_CHANGED', 'The prior intent and retained request disagree.');
+    subject = exposureSubject(request);
+    await hosting.assertScope(request.target); await flags.assertScope();
+    beforeProvider = await hosting.snapshot();
+    if (!terminalCleanup && !completedVerified) assertServing(beforeProvider, subject);
+    before = await flags.snapshot();
+  } catch (error) {
+    if (!prior) throw error;
+    throw reconciliationPreflightError(error, reconciliationCommand('reconcile-exposure', input.targetName, prior.record.attemptId, root, undefined, prior.record.request.target, input.recoveryRepository));
+  }
   if (!prior && before.digest !== request.before.digest) throw new LabError('FLAG_STATE_CHANGED', 'The flag changed since request resolution. No PATCH was sent.');
-  if (mutating && !input.apply) return { outcome: 'preview', reasonCodes: ['APPLY_REQUIRED'], target: request.targetName, stage: request.stage, requestDigest: verified.requestDigest, recordPath: '' };
+  if (mutating && !input.apply) return { outcome: 'preview', attemptId: undefined, recoveryInstruction: undefined, cleanupWarning: undefined, reasonCodes: ['APPLY_REQUIRED'], target: request.targetName, stage: request.stage, requestDigest: verified.requestDigest, recordPath: '' };
   // Authenticate the actual protected job before obtaining a mutation lock.
   const identity = mutating ? await protectedRun(request, verified.requestDigest) : null;
   const journal = new Journal(join(root, 'exposure'));
   const release = mutating ? await acquireLock(root, request.target, journal.attemptId) : undefined;
-  let effectAttempted = false, saved = false, measuredStableState = false;
+  let effectAttempted = false, saved = false, measuredStableState = false, completedReadback = false, observedHealthFailure = false;
   const record: ExposureRecord = { schemaVersion: 1, kind: 'exposure-record', attemptId: journal.attemptId, operation: input.operation, request, requestDigest: verified.requestDigest, startedAt: new Date().toISOString(), finishedAt: null, outcome: 'unknown_outcome', reasonCodes: [], recoveryInstruction: '', submitted: false, acknowledged: false, featureProof: null, authorization: identity, reconciles: input.attempt ?? null };
   try {
     await journal.initialize(); await preserveRelease(join(journal.directory, 'release'), verified);
     await journal.append('intent', record); await journal.append('before-provider', beforeProvider); await journal.append('before-flag', before);
+    completedReadback = completedVerified;
+    if (terminalCleanup) throw new LabError('COMPLETED_ATTEMPT_CLEANUP', 'The earlier attempt already has a terminal unsuccessful result. Its owned lock can be cleared after this read-only record is saved. Inspect the earlier result and resolve fresh authority for any recovery.');
+    if (completedVerified) assertServing(beforeProvider, subject);
     if (mutating) {
       const fresh = await verifyExposureRelease(directory);
       if (fresh.requestDigest !== verified.requestDigest) throw new LabError('EXPOSURE_ATTACHMENT_CHANGED', 'Approved request changed before PATCH.');
@@ -187,26 +206,40 @@ export async function executeExposure(input: ExposureOperation, hosting: Hosting
       await journal.append('acknowledged', acknowledged);
     }
     const actual = await flags.snapshot();
+    await journal.append('actual-flag', actual);
     if (!matchesDesired(actual.state, request.desired) || actual.stage !== request.stage) throw new LabError('FLAG_NOT_CONVERGED', 'Provider state has not reached the requested definition. Reconcile without repeating PATCH.', 'unknown_outcome');
     record.featureProof = await measureFeatureProof(hosting, flags, subject, verified.baselineP95Ms, sample => journal.append('request', sample), transport, verified.baselineQueryP95Ms);
     await journal.append('feature-proof', record.featureProof);
     if (record.featureProof.before.digest !== actual.digest) throw new LabError('FLAG_STATE_CHANGED', 'Flag changed before the observation began.');
     assertServing(record.featureProof.providerAfter as Awaited<ReturnType<Hosting['snapshot']>>, subject);
     measuredStableState = record.featureProof.before.digest === record.featureProof.after.digest && fingerprint(record.featureProof.providerBefore) === fingerprint(record.featureProof.providerAfter);
+    observedHealthFailure = hasObservedFeatureFailure(record.featureProof, subject);
     const checked = checkFeatureProof(record.featureProof, subject, 'any');
-    if (verified.priorProof && request.stage !== 'internal') assertTreatmentRetained(verified.priorProof, checked);
+    if (verified.priorProof && request.stage !== 'internal') {
+      try { assertTreatmentRetained(verified.priorProof, checked); }
+      catch (error) { observedHealthFailure = true; throw error; }
+    }
     record.outcome = 'verified';
     record.recoveryInstruction = prior ? 'Desired provider state and sampled behavior observed. This does not attribute the change to the original PATCH.' : '';
   } catch (error) {
     const failure = error instanceof LabError ? error : new LabError('EXPOSURE_EXECUTION_ERROR', 'Exposure execution or persistence failed. Inspect retained evidence.');
-    record.outcome = (effectAttempted || prior) && !(measuredStableState && ['EXPOSURE_HOLD', 'EXPOSURE_WINDOW'].includes(failure.code)) ? 'unknown_outcome' : failure.outcome;
-    record.reasonCodes = [failure.code]; record.recoveryInstruction = `${failure.message}${record.outcome === 'blocked' && measuredStableState ? ' Desired flag state is known but health is not verified. Independently authorize disable; no expansion evidence was issued.' : ''}${record.outcome === 'unknown_outcome' ? ` Reconcile exposure attempt ${prior?.record.attemptId ?? journal.attemptId}.` : ''}`;
+    const completedCleanup = completedReadback && (observedHealthFailure || ['EXPOSURE_SUBJECT_CHANGED', 'FLAG_NOT_CONVERGED', 'FLAG_STATE_CHANGED'].includes(failure.code));
+    if (completedVerified) record.featureProof = null;
+    record.outcome = completedVerified ? completedCleanup ? 'blocked' : 'unknown_outcome' : (effectAttempted || prior) && failure.code !== 'COMPLETED_ATTEMPT_CLEANUP' && !(measuredStableState && ['EXPOSURE_HOLD', 'EXPOSURE_WINDOW'].includes(failure.code)) ? 'unknown_outcome' : failure.outcome;
+    record.reasonCodes = [failure.code, ...(completedCleanup ? ['COMPLETED_ATTEMPT_CLEANUP'] : [])]; record.recoveryInstruction = `${failure.message}${completedCleanup ? ' The earlier verified attempt is complete. This blocked readback clears only its retained lock; resolve fresh authority for recovery.' : ''}${record.outcome === 'blocked' && measuredStableState ? ' Desired flag state is known but health is not verified. Independently authorize disable; no expansion evidence was issued.' : ''}${record.outcome === 'unknown_outcome' ? ` Run ${reconciliationCommand('reconcile-exposure', request.targetName, prior?.record.attemptId ?? journal.attemptId, root, undefined, request.target, input.recoveryRepository)}.` : ''}`;
   }
+  let recordPath: string;
   try {
-    record.finishedAt = new Date().toISOString(); const recordPath = await saveExposureRecord(journal, record); saved = true;
-    if (prior && (record.outcome === 'verified' || record.outcome === 'blocked' && measuredStableState)) await releaseReconciledLock(root, request.target, prior.record.attemptId);
-    return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, attemptId: journal.attemptId, recordPath };
-  } finally { if (release && (!effectAttempted || saved && record.outcome !== 'unknown_outcome')) await release(); }
+    record.finishedAt = new Date().toISOString(); recordPath = await saveExposureRecord(journal, record); saved = true;
+  } finally { if (release && !saved && !effectAttempted) await release(); }
+  let cleanupWarning: ReturnType<typeof lockCleanupWarning> | undefined;
+  try {
+    if (prior && (record.outcome === 'verified' || record.outcome === 'blocked' && measuredStableState || record.reasonCodes.includes('COMPLETED_ATTEMPT_CLEANUP'))) await releaseReconciledLock(root, request.target, prior.record.attemptId);
+    if (release && (!effectAttempted || record.outcome !== 'unknown_outcome')) await release();
+  } catch (error) {
+    cleanupWarning = lockCleanupWarning(error, recordPath, reconciliationCommand('reconcile-exposure', request.targetName, prior?.record.attemptId ?? journal.attemptId, root, undefined, request.target, input.recoveryRepository));
+  }
+  return { outcome: record.outcome, reasonCodes: record.reasonCodes, recoveryInstruction: record.recoveryInstruction, attemptId: journal.attemptId, recordPath, cleanupWarning };
 }
 /** Provider-assigned rule/clause IDs may be new; all behavioral fields must agree. */
 export function matchesDesired(actual: z.infer<typeof flagStateSchema>, desired: z.infer<typeof flagStateSchema>) {

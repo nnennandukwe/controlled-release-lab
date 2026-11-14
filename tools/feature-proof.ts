@@ -31,6 +31,15 @@ export function checkFeatureProof(input: unknown, subject: FeatureSubject, requi
   if (checked.measurement.outcome !== 'verified') throw new LabError('EXPOSURE_HOLD', `Exposure evidence is insufficient: ${checked.measurement.reasonCodes.join(', ')}.`);
   return checked;
 }
+export function hasObservedFeatureFailure(input: unknown, subject: FeatureSubject) {
+  try {
+    const measured = inspectFeatureProof(input, subject, 'any').measurement;
+    // Require parsed responses or observed HTTP errors throughout a complete window.
+    return measured.outcome !== 'verified' && measured.requests === measured.expectedRequests && measured.requests > 0
+      && !measured.reasonCodes.some(code => ['SHORT_WINDOW', 'MISSING_BASELINE'].includes(code))
+      && measured.samples.every(sample => sample.status !== null && (sample.error === null || sample.status >= 400));
+  } catch { return false; }
+}
 export async function measureFeatureProof(hosting: Hosting, flags: FlagProvider, subject: FeatureSubject, baselineP95Ms: number, onSample: (sample: ExposureSample) => Promise<void>, transport: typeof fetch, baselineQueryP95Ms: QueryBaseline | null): Promise<FeatureProof> {
   const providerBefore = await hosting.snapshot(); assertServing(providerBefore, subject);
   const before = await flags.snapshot();

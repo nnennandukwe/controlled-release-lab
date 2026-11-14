@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { link, mkdir, open, readFile, readdir, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm, rmdir, unlink } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 
 export class LabError extends Error {
-  constructor(public code: string, message: string, public outcome: 'failed' | 'blocked' | 'unknown_outcome' = 'blocked') { super(message); }
+  recoveryCommand?: string;
+  constructor(public code: string, message: string, public outcome: 'failed' | 'blocked' | 'unknown_outcome' = 'blocked', options?: ErrorOptions) { super(message, options); }
 }
 export const imageSchema = z.string().regex(/^ghcr\.io\/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$/, 'Use a GHCR image qualified by sha256 digest.');
 export const changeReferenceSchema = z.string().trim().min(3).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._:/#-]*$/, 'Use a change identifier or URL without spaces or query parameters.');
@@ -41,16 +42,80 @@ export async function loadRecord(path: string) {
 export async function loadAttempt(root: string, attemptId: string) {
   z.string().uuid().parse(attemptId);
   const directory = join(root, 'attempts', attemptId);
-  try { return await loadRecord(join(directory, 'record.json')); }
+  try {
+    const record = await loadRecord(join(directory, 'record.json'));
+    assertAttemptIdentity(record.attemptId, attemptId);
+    return record;
+  }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   const entries = (await readdir(directory)).sort();
   const intent = entries.find(name => name.endsWith('-intent.json'));
   if (!intent) throw new LabError('MISSING_INTENT', 'This attempt has no durable intent. Inspect provider state before any further mutation.');
   const record = recordSchema.parse(JSON.parse(await readFile(join(directory, intent), 'utf8')).observation);
+  assertAttemptIdentity(record.attemptId, attemptId);
   for (const name of entries.filter(name => name.endsWith('-accepted.json'))) {
     record.deploymentId = z.string().uuid().parse(JSON.parse(await readFile(join(directory, name), 'utf8')).observation.deploymentId);
   }
   return record;
+}
+
+export function assertAttemptIdentity(recordAttempt: string, requestedAttempt: string) {
+  if (recordAttempt !== requestedAttempt) throw new LabError('ATTEMPT_IDENTITY_MISMATCH', 'The retained record belongs to another attempt. Restore the original attempt directory before reconciliation.');
+}
+
+function lockPath(root: string, target: Target) {
+  return join(root, 'locks', `${fingerprint([target.projectId, target.serviceId, target.environmentId])}.lock`);
+}
+
+export async function readLockOwner(root: string, target: Target): Promise<string | undefined> {
+  const path = lockPath(root, target);
+  let entries: string[];
+  try { entries = await readdir(path); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    if ((error as NodeJS.ErrnoException).code !== 'ENOTDIR') throw error;
+    try { return await readFile(path, 'utf8'); }
+    catch (readError) {
+      if ((readError as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      // A concurrent legacy cleanup may already have published a new directory.
+      if ((readError as NodeJS.ErrnoException).code === 'EISDIR') return readLockOwner(root, target);
+      throw readError;
+    }
+  }
+  if (!entries.length) return undefined;
+  if (entries.length !== 1 || !/^[a-f0-9]{64}\.lock$/.test(entries[0]!)) throw new LabError('LOCK_STATE_INVALID', `Preserve a backup of ${path}. Move only identified unrelated files you own outside this directory, keep all owner markers intact, and retry. If you can't identify the entries, stop and inspect the retained evidence.`);
+  let owner: string;
+  try { owner = await readFile(join(path, entries[0]!), 'utf8'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+  if (`${fingerprint(owner)}.lock` !== entries[0]) throw new LabError('LOCK_STATE_INVALID', 'Preserve the mismatched owner marker and restore its original bytes before recovery.');
+  return owner;
+}
+
+export async function ownsLock(root: string, target: Target, attemptId: string) {
+  return await readLockOwner(root, target) === attemptId;
+}
+
+export function reconciliationCommand(operation: 'reconcile' | 'reconcile-exposure', target: 'staging' | 'live', attempt: string, root: string, configPath: string | undefined, targetConfig: Target, recoveryRepository?: string) {
+  if (recoveryRepository !== undefined) {
+    z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/).parse(recoveryRepository);
+    z.string().uuid().parse(attempt);
+    return `gh workflow run operate.yml --repo ${recoveryRepository} --ref main -f operation=${operation} -f target=${target} -f attempt=${attempt} -f apply=false`;
+  }
+  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  const selection = configPath === undefined ? `LAB_CONFIG_JSON=${quote(JSON.stringify({ [target]: targetSchema.parse(targetConfig) }))} ` : '';
+  return `${selection}npm run lab -- ${operation} --target ${target} --attempt ${attempt} --work-dir ${quote(resolve(root))}${configPath === undefined ? '' : ` --config ${quote(resolve(configPath))}`}`;
+}
+
+export function reconciliationPreflightError(error: unknown, command: string) {
+  const failure = error instanceof LabError ? error : new LabError('RECONCILIATION_PREFLIGHT_FAILED', 'Read-only recovery preflight failed. Repair access or retained evidence before retrying.', 'blocked', { cause: error });
+  failure.recoveryCommand = command;
+  return failure;
+}
+
+export function lockCleanupWarning(error: unknown, recordPath: string, command: string) {
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+  const causeCode = typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : 'UNKNOWN_IO_ERROR';
+  return { code: 'LOCK_CLEANUP_REQUIRED', causeCode, recoveryInstruction: `The result's saved at ${recordPath}, but lock cleanup failed (${causeCode}). Run ${command} before another mutation.` };
 }
 
 export class Journal {
@@ -77,22 +142,82 @@ export class Journal {
   }
 }
 
-export async function acquireLock(root: string, target: Target, attemptId: string) {
-  const directory = join(root, 'locks');
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const path = join(directory, `${fingerprint([target.projectId, target.serviceId, target.environmentId])}.lock`);
+async function cleanupLockPreparations(preparations: string) {
+  let inspected = preparations;
+  const invalid = () => new LabError('LOCK_PREPARATION_STATE_INVALID', `Unknown unpublished preparation at ${inspected}. Stop old operators, back up this work directory and relocate only identified scratch or unrelated files you own. Preserve canonical locks, journals and unknown data, then retry.`);
   try {
-    const file = await open(path, 'wx', 0o600);
-    try { await file.writeFile(attemptId); await file.sync(); } finally { await file.close(); }
+    for (const entry of await readdir(preparations, { withFileTypes: true })) {
+      inspected = join(preparations, entry.name);
+      const owner = /^owner-([1-9][0-9]*)-[A-Za-z0-9]{6}$/.exec(entry.name), pid = Number(owner?.[1]);
+      if (!entry.isDirectory() || !owner || !Number.isSafeInteger(pid) || pid > 2147483647) throw invalid();
+      try { process.kill(pid, 0); continue; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') continue; }
+      try {
+        if (!(await lstat(inspected)).isDirectory()) throw invalid();
+        const files = await readdir(inspected);
+        if (files.length > 1 || files.some(name => !/^[a-f0-9]{64}\.lock$/.test(name))) throw invalid();
+        if (files[0]) {
+          const marker = join(inspected, files[0]);
+          try {
+            const state = await lstat(marker);
+            if (!state.isFile() || state.size > 256) throw invalid();
+            // A stopped process can leave its unpublished marker partially written.
+            await unlink(marker);
+          } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        }
+        // A concurrent unknown file prevents removal; never recursively erase it.
+        await rmdir(inspected);
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new LabError('OPERATION_LOCKED', 'An operation owns this environment. Reconcile its attempt before starting another mutation.');
+    if (error instanceof LabError) throw error;
+    throw new LabError('LOCK_PREPARATION_CLEANUP_FAILED', `No new lock was acquired. Unpublished preparation cleanup failed at ${inspected}. Preserve canonical locks and journals, repair access and retry.`, 'blocked', { cause: error });
+  }
+}
+
+export async function acquireLock(root: string, target: Target, attemptId: string) {
+  await mkdir(join(root, 'locks'), { recursive: true, mode: 0o700 });
+  const preparations = join(root, 'lock-preparations');
+  await mkdir(preparations, { recursive: true, mode: 0o700 });
+  await cleanupLockPreparations(preparations);
+  const prepared = await mkdtemp(join(preparations, `owner-${process.pid}-`));
+  try {
+    const file = await open(join(prepared, `${fingerprint(attemptId)}.lock`), 'wx', 0o600);
+    try { await file.writeFile(attemptId); await file.sync(); } finally { await file.close(); }
+    // POSIX rename replaces an empty directory, but never a populated owner or
+    // legacy file. Publish the complete marker in one filesystem operation.
+    await rename(prepared, lockPath(root, target));
+  } catch (error) {
+    try { await rm(prepared, { recursive: true, force: true }); }
+    catch (cleanupError) { throw new LabError('LOCK_PREPARATION_CLEANUP_FAILED', `No lock was acquired. Preserve canonical locks and remove the unpublished preparation at ${prepared} after repairing access.`, 'blocked', { cause: new AggregateError([error, cleanupError]) }); }
+    if (['EEXIST', 'ENOTEMPTY', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) {
+      await readLockOwner(root, target); // Report malformed state before an ownership conflict.
+      throw new LabError('OPERATION_LOCKED', 'Another operation owns or just changed this environment lock. Inspect its current owner. Reconcile any retained attempt before starting another mutation.');
+    }
     throw error;
   }
-  return async () => { if (await readFile(path, 'utf8') === attemptId) await unlink(path); };
+  return () => releaseReconciledLock(root, target, attemptId);
 }
 
 export async function releaseReconciledLock(root: string, target: Target, attemptId: string) {
-  const path = join(root, 'locks', `${fingerprint([target.projectId, target.serviceId, target.environmentId])}.lock`);
+  const path = lockPath(root, target);
+  const marker = join(path, `${fingerprint(attemptId)}.lock`);
+  try {
+    if (await readFile(marker, 'utf8') !== attemptId) throw new LabError('LOCK_STATE_INVALID', 'Preserve the mismatched owner marker and restore its original bytes before recovery.');
+    await unlink(marker); return;
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    if ((error as NodeJS.ErrnoException).code !== 'ENOTDIR') throw error;
+  }
+  // Compatibility with retained plain-file locks. New acquisitions always use
+  // directories, which a delayed legacy unlink cannot remove.
   try { if (await readFile(path, 'utf8') === attemptId) await unlink(path); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'EISDIR') return;
+    // macOS reports EPERM for unlink(directory); preserve actual file denials.
+    if (code === 'EPERM' && (await lstat(path)).isDirectory()) return;
+    throw error;
+  }
 }

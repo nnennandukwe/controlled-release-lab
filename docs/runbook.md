@@ -209,6 +209,98 @@ The work directory keeps intent, authorization, observations, checksummed record
 and locks. Raw samples preserve failures in the denominator; missing responses
 produce a null p95 instead of claiming a complete latency measurement.
 
+### Retained locks after a completed result
+
+To check this recovery path against the existing Railway staging environment,
+dispatch **Operate lab** on main with `operation=doctor`, `target=staging`, and
+`rehearse_operator_recovery=true`. Inspect and approve the normal staging job.
+The opt-in check covers scope-read and snapshot-read rejection separately. Each
+sends one deliberately invalid read-only GraphQL request to Railway, preserves
+an isolated teaching-fixture record and its owned lock, then
+executes the emitted CLI recovery command against real provider readback. It
+requires unchanged original bytes, blocked cleanup evidence, a released owned
+lock and unchanged provider state. The job retains its receipt and failed
+attempts under `work/hosted-operator-recovery/` in the ordinary `lab-state`
+artifact. It supplies no release eligibility. Other operations and live targets
+reject this input before resolution. Ordinary doctor calls keep their preflight
+behavior.
+
+The standalone hosted-check harness uses a POSIX shell and process groups; use
+the protected Ubuntu job or run it locally on macOS/Linux. Timeouts and
+cancellation stop the owned command group, including shell/npm descendants.
+Successful supported Railway read retries remain valid and count in the receipt.
+The protected check runs both rejection phases for a blocked-result fixture and
+a verified-result fixture with a simulated earlier configuration. That second
+fixture exercises drift cleanup without changing the hosted configuration.
+
+If lock removal fails after a result's saved, JSON output keeps `recordPath`,
+`attemptId`, and the measured `outcome`, plus a `cleanupWarning` with code
+`LOCK_CLEANUP_REQUIRED` and the filesystem `causeCode` (for example `EACCES`).
+The CLI exits 2. Local warnings use the same work directory. Operate lab warnings
+provide a fresh read-only workflow dispatch on main, with the original target and
+attempt. That workflow restores the retained state artifact and still requires
+normal environment approval. Don't repeat the mutation or delete its lock manually.
+Both sealing entry points emit `sign=false` while a cleanup warning remains;
+the saved measurements stay in the state artifact until recovery completes.
+
+`reconcile` and `reconcile-exposure` accept a completed attempt only while its
+UUID still owns that environment's lock. The retained record's UUID must match
+its directory. A missing lock or a different owner rejects completed-attempt
+cleanup. Unknown attempts keep their existing read-only reconciliation path.
+
+New locks are directories under `work/locks/`; their single owner marker names
+the attempt through its hash. An empty outer directory means the environment's
+available. Retained plain-file locks still hold their original UUID. Count active
+owner markers or legacy owner files when checking unresolved locks, rather than
+counting outer directory entries. Use the upgraded operator consistently for a
+retained work directory.
+
+Unpublished preparation names include their creator PID. Before acquiring a new
+lock, the operator reclaims empty or partially written scratch only after the OS
+reports that process has stopped. A live, reused or uninspectable PID preserves
+its preparation. This recovery uses the same cooperative, same-host filesystem
+boundary as lock publication.
+
+`LOCK_PREPARATION_STATE_INVALID` preserves unknown or legacy preparation data
+and stops new preparation creation. Stop old operators, back up the work
+directory, and relocate only identified unpublished scratch or unrelated files
+you own. Preserve canonical locks, journals and unknown data. For
+`LOCK_PREPARATION_CLEANUP_FAILED`, repair filesystem access before retrying.
+
+For a previously verified result, reconciliation attempts fresh provider and
+runtime verification. If fresh readback shows subject drift or a complete window
+returns unhealthy HTTP responses, it saves blocked readback with the failure reason
+and `COMPLETED_ATTEMPT_CLEANUP`, then clears only the original owned lock.
+Provider/flag read errors, missing or unreadable successful responses, and
+evidence-write failures preserve
+the original owner and its retry command. Their new record keeps verification
+unknown so the same UUID can retry after the dependency recovers. Actual flag
+readback is journaled before a mismatch can finish cleanup. For a completed unsuccessful
+result, it records provider readback and `COMPLETED_ATTEMPT_CLEANUP`, clears only
+the original owned lock, and stays blocked. That cleanup supplies no release
+eligibility; inspect the earlier failure and resolve fresh authority for recovery.
+The hosting adapter must match the retained project, service, environment and URL.
+Image or configuration drift stays visible in the blocked cleanup record.
+During deployment recovery, drift first detected inside feature verification can
+leave the original owner for another read-only retry with the same UUID.
+Each path saves a new record and preserves the earlier bytes. Acknowledged native
+rollbacks remain unknown and require verified recovery; a blocked follow-up has a
+new UUID and keeps the original lock.
+
+After a failed deployment reconciliation, the recovery command names the original
+attempt, including scope verification before journaling and later snapshot
+failure. Exposure preflight failures also name the original owner. A scope
+failure retains earlier state without claiming a new record was saved. If the CLI
+was started with `--config`, the hint includes that file's absolute path and
+quotes it for the shell. Keep using that UUID and target map until reconciliation
+succeeds. Cancellation during
+observation can leave an intent without a terminal record; restart with the
+original attempt and retained work directory. Previously absent responses remain
+absent from the earlier record.
+
+The [local maintenance proof](../.plan/local-operator-recovery.md) records the
+synthetic fixtures and checks behind this contract.
+
 ## Automated hosted recovery test
 
 Each successful **Publish image** run on main triggers **Queue hosted recovery
@@ -710,3 +802,42 @@ artifacts. A rehearsed system proves behavior, not participant learning or adopt
 - [GitHub environment protection](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
 - [Railway deployment API](https://docs.railway.com/integrations/api/manage-deployments)
 - [Railway rollback](https://docs.railway.com/deployments/deployment-actions)
+
+The standalone hosted recovery producer requires clean tracked, staged and
+untracked source state before provider access. It checks the same commit and
+cleanliness again before emitting successful receipts. Preserve edits in their
+own checkout or commit; keep generated check artifacts under ignored `work/` or
+outside source. These checks detect ordinary source changes during the cooperative
+lab exercise. A failed source check retains its diagnostic artifacts for review.
+
+
+If a lock namespace contains unrelated files such as seeded metadata, the operator
+reports `LOCK_STATE_INVALID` and preserves every entry. First preserve the work
+artifact or make a separate backup. Identify any unrelated files you own and move
+those files to a separate preserved location, keeping every owner marker intact.
+Then retry read-only reconciliation for a retained owner. If no owner remains,
+resolve a new authorized operation. Unknown or conflicting markers require
+inspection of preserved evidence before repair. This procedure preserves metadata
+and notes while restoring the controlled namespace; the operator doesn't remove
+unidentified files automatically.
+
+
+A retry without an explicit config file includes a shell-quoted `LAB_CONFIG_JSON`
+assignment containing only its validated target IDs and origin. It preserves
+selection when copied to another shell or used after the original environment
+map's gone. Explicit file paths remain absolute. Provide credentials through the
+ordinary secret store. An empty `--config` argument fails before provider access.
+
+
+Unexpected hosted-check failures report bounded error types, codes, cause codes
+and a source file/line in stderr. Arbitrary exception messages and full stacks
+aren't printed. Inspect those diagnostics alongside retained stdout/stderr and
+attempt journals; provider transport causes stay available for the bounded report.
+
+
+Main Operate lab reconciliation bootstraps its provider target from the validated
+retained attempt, preserving its original environment when the current target map
+changes. Scope and evidence verification still run before any effects. Local
+explicit target/config selection keeps its existing checks. Retained exposure
+verification failures include the original-owner command and preserve its lock;
+retrying repeats provenance verification before provider preflight.

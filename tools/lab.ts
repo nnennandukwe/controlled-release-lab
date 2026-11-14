@@ -4,14 +4,14 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
-import { LabError, targetSchema } from './evidence.js';
+import { LabError, loadAttempt, targetSchema } from './evidence.js';
 import { execute, type Operation } from './operations.js';
 import { rehearseRecovery } from './recovery-rehearsal.js';
-import { executeExposure, verifyExposureObservation, type ExposureOperation } from './exposure.js';
+import { executeExposure, loadExposureAttempt, verifyExposureObservation, type ExposureOperation } from './exposure.js';
 import { rehearseExposureRecovery } from './exposure-rehearsal.js';
 import { LaunchDarkly, enabledStageSchema } from './launchdarkly.js';
 import { Railway } from './railway.js';
-import { checkRequest, releaseRequestSchema, verifyRelease } from './promotion.js';
+import { checkRequest, policy, releaseRequestSchema, verifyRelease } from './promotion.js';
 import { fingerprint } from './evidence.js';
 
 export const help = `Controlled Release Lab - authenticated promotion and recovery
@@ -69,6 +69,7 @@ Local deploy/rollback are previews. Apply requires authenticated GitHub OIDC and
 Output: JSON on stdout, progress on stderr. Exit 0 verified/preview/authenticated diagnostic; 1 invalid/failed; 2 blocked/unknown.
 Diagnostic authentication always reports authorized=false and cannot establish release eligibility.
 Railway rollback returns acknowledgment only: apply exits 2 and retains its lock until reconcile verifies recovery.
+A saved result with cleanupWarning also exits 2. Reconcile its named attempt to reobserve and clear the owned lock.
 `;
 
 export async function runCli(args: string[], environment: NodeJS.ProcessEnv = process.env, stdout: (text: string) => void = text => process.stdout.write(text), stderr: (text: string) => void = text => process.stderr.write(text)) {
@@ -110,10 +111,23 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
       const allowed = ['target', 'work-dir', ...(operation === 'reconcile-exposure' ? ['attempt'] : ['release-dir']), ...(['expose', 'disable'].includes(operation) ? ['apply'] : []), ...(operation === 'expose' ? ['stage', 'rehearse-response-loss'] : [])];
       if (Object.keys(values).some(key => !allowed.includes(key))) throw new LabError('INVALID_EXPOSURE_ARGUMENT', 'Exposure accepts only its documented request, stage and work-directory arguments.');
     } else if (values.stage !== undefined) throw new LabError('INVALID_ARGUMENT', '--stage applies only to expose.');
-    const raw = values.config ? await readFile(values.config, 'utf8') : environment.LAB_CONFIG_JSON ?? await readFile('config/lab.json', 'utf8');
-    const map = z.object({ staging: targetSchema.optional(), live: targetSchema.optional() }).strict().parse(JSON.parse(raw));
-    if (map.staging && map.live && map.staging.environmentId === map.live.environmentId) throw new LabError('ENVIRONMENT_COLLISION', 'Staging and live must use separate Railway environments.');
-    const target = targetSchema.parse(map[targetName]);
+    const recoveryRepository = environment.GITHUB_ACTIONS === 'true' && environment.GITHUB_REPOSITORY === policy.repository && environment.GITHUB_REF === 'refs/heads/main' && environment.GITHUB_WORKFLOW_REF === `${policy.repository}/.github/workflows/operate.yml@refs/heads/main` ? policy.repository : undefined;
+    if (values.config === '') throw new LabError('INVALID_CONFIG_PATH', 'Use a nonempty --config file path.', 'failed');
+    let target: z.infer<typeof targetSchema>;
+    if (recoveryRepository && operation === 'reconcile') {
+      const prior = await loadAttempt(values['work-dir'] ?? 'work', z.string().uuid().parse(values.attempt));
+      if (prior.targetName !== targetName) throw new LabError('RESTORE_TARGET_MISMATCH', 'The retained attempt belongs to another target.');
+      target = prior.target;
+    } else if (recoveryRepository && operation === 'reconcile-exposure') {
+      const prior = await loadExposureAttempt(values['work-dir'] ?? 'work', z.string().uuid().parse(values.attempt));
+      if (prior.record.request.targetName !== targetName) throw new LabError('RESTORE_TARGET_MISMATCH', 'The retained attempt belongs to another target.');
+      target = prior.record.request.target;
+    } else {
+      const raw = values.config ? await readFile(values.config, 'utf8') : environment.LAB_CONFIG_JSON ?? await readFile('config/lab.json', 'utf8');
+      const map = z.object({ staging: targetSchema.optional(), live: targetSchema.optional() }).strict().parse(JSON.parse(raw));
+      if (map.staging && map.live && map.staging.environmentId === map.live.environmentId) throw new LabError('ENVIRONMENT_COLLISION', 'Staging and live must use separate Railway environments.');
+      target = targetSchema.parse(map[targetName]);
+    }
     const hosting = new Railway(environment.RAILWAY_PROJECT_TOKEN ?? '', target);
     stderr(`${operation}: checking ${targetName}\n`);
     heartbeat = setInterval(() => stderr(`${operation}: waiting for bounded checks...\n`), 10000);
@@ -125,14 +139,17 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     const flags = new LaunchDarkly(environment.LD_READ_TOKEN ?? '', isExposure && values.apply ? environment.LD_MANAGEMENT_TOKEN : undefined, targetName);
     if (isExposure) {
       const exposure: ExposureOperation = { operation: operation as ExposureOperation['operation'], targetName, apply: values.apply ?? false, rehearseResponseLoss: values['rehearse-response-loss'] ?? false };
+      if (recoveryRepository) exposure.recoveryRepository = recoveryRepository;
       if (values['release-dir']) exposure.releaseDir = values['release-dir'];
       if (values.attempt) exposure.attempt = values.attempt;
       if (operation === 'expose') exposure.stage = enabledStageSchema.parse(values.stage);
       const result = await (exposure.rehearseResponseLoss ? rehearseExposureRecovery : executeExposure)(exposure, hosting, flags, values['work-dir'] ?? 'work');
       stdout(`${JSON.stringify(result)}\n`);
-      return result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
+      return result.cleanupWarning ? 2 : result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
     }
     const request: Operation = { operation: (operation === 'rehearse-recovery' ? 'deploy' : operation) as Operation['operation'], purpose: operation === 'rehearse-recovery' ? 'recovery-rehearsal' : 'release', targetName, target, apply: values.apply ?? false };
+    if (recoveryRepository) request.recoveryRepository = recoveryRepository;
+    if (values.config !== undefined) request.configPath = resolve(values.config);
     if (values['release-dir'] !== undefined) request.releaseDir = values['release-dir'];
     if (request.releaseDir && operation === 'observe') {
       const { request: candidate } = await verifyRelease(request.releaseDir);
@@ -161,10 +178,10 @@ export async function runCli(args: string[], environment: NodeJS.ProcessEnv = pr
     stderr(`${operation}: checking ${targetName}; evidence directory ${resolve(values['work-dir'] ?? 'work')}\n`);
     const result = await (operation === 'rehearse-recovery' ? rehearseRecovery : execute)(request, hosting, values['work-dir'] ?? 'work', fetch, flags);
     stdout(`${JSON.stringify(result)}\n`);
-    return result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
+    return result.cleanupWarning ? 2 : result.outcome === 'verified' || result.outcome === 'preview' ? 0 : result.outcome === 'failed' ? 1 : 2;
   } catch (error) {
     const message = error instanceof z.ZodError ? error.issues.map(issue => `${issue.path.join('.') || 'argument'}: ${issue.message}`).join('; ') : error instanceof SyntaxError ? 'Configuration is not valid JSON.' : error instanceof LabError ? error.message : 'Command could not complete. Check configuration, file paths, and evidence permissions.';
-    stdout(`${JSON.stringify({ outcome: error instanceof LabError ? error.outcome : 'failed', reasonCodes: [error instanceof LabError ? error.code : 'INVALID_INPUT_OR_IO'], recoveryInstruction: `${message} Run npm run lab -- --help.` })}\n`);
+    stdout(`${JSON.stringify({ outcome: error instanceof LabError ? error.outcome : 'failed', reasonCodes: [error instanceof LabError ? error.code : 'INVALID_INPUT_OR_IO'], recoveryInstruction: `${message} Run ${error instanceof LabError && error.recoveryCommand ? error.recoveryCommand : 'npm run lab -- --help'}.` })}\n`);
     return error instanceof LabError && error.outcome !== 'failed' ? 2 : 1;
   } finally { if (heartbeat) clearInterval(heartbeat); }
 }

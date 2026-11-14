@@ -34,20 +34,22 @@ export function diagnosticFixture() {
     submitted: true, acknowledged: true, featureProof: proof, authorization: { fixture: 'protected test run' }, reconciles: null };
 }
 
-async function seal(options: { stale?: boolean; missingChecksum?: boolean } = {}) {
+async function seal(options: { stale?: boolean; missingChecksum?: boolean; healthy?: boolean; cleanupWarning?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'exposure-seal-'));
   try {
-    const record = diagnosticFixture(), bytes = JSON.stringify(record);
+    const fixture = diagnosticFixture();
+    const record = options.healthy ? { ...fixture, outcome: 'verified' as const, reasonCodes: [], recoveryInstruction: '', featureProof: featureFixture(fixture.featureProof.subject, '5') } : fixture;
+    const bytes = JSON.stringify(record);
     const recordPath = join(directory, 'work/exposure/attempts', record.attemptId, 'exposure-record.json');
     await mkdir(join(recordPath, '..'), { recursive: true });await writeFile(recordPath, bytes);
     if (!options.missingChecksum) await writeFile(`${recordPath}.sha256`, sha256(bytes));
-    await writeFile(join(directory, 'work/last-result.json'), JSON.stringify({ outcome: 'blocked', recordPath, operation: 'expose', operator: { ...operator, runId: options.stale ? '19' : '20' } }));
+    await writeFile(join(directory, 'work/last-result.json'), JSON.stringify({ outcome: record.outcome, recordPath, cleanupWarning: options.cleanupWarning ? { code: 'LOCK_CLEANUP_REQUIRED', causeCode: 'EACCES' } : undefined, operation: 'expose', operator: { ...operator, runId: options.stale ? '19' : '20' } }));
     const output = join(directory, 'output');
     const result = spawnSync(process.execPath, ['--import', import.meta.resolve('tsx'), fileURLToPath(new URL('../tools/release-workflow.ts', import.meta.url)), 'seal'], {
       cwd: directory, encoding: 'utf8', timeout: 15000,
       env: { PATH: process.env.PATH, GITHUB_SHA: operator.sourceSha, GITHUB_RUN_ID: operator.runId, GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: output, LAB_TARGET: 'staging', LAB_OPERATION: 'expose' },
     });
-    return { result, output: await readFile(output, 'utf8').catch(() => ''), envelope: await readFile(join(directory, 'artifacts/observation/exposure-diagnostic.json'), 'utf8').then(JSON.parse).catch(() => null) };
+    return { result, proof: await readFile(join(directory, 'artifacts/observation/exposure-evidence.json'), 'utf8').then(JSON.parse).catch(() => null), output: await readFile(output, 'utf8').catch(() => ''), envelope: await readFile(join(directory, 'artifacts/observation/exposure-diagnostic.json'), 'utf8').then(JSON.parse).catch(() => null) };
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
@@ -56,6 +58,16 @@ it('the real seal CLI preserves a blocked observation as a diagnostic, never as 
   expect(sealed.result.stderr).toBe('');expect(sealed.result.status).toBe(0);expect(sealed.output).toContain('sign=true');
   expect(sealed.output).toContain('artifact_kind=diagnostic');
   expect(sealed.envelope).toMatchObject({ kind: 'exposure-diagnostic', eligible: false, record: { outcome: 'blocked' } });
+});
+it('the real seal CLI publishes healthy exposure eligibility after completed cleanup', async () => {
+  const sealed = await seal({ healthy: true });
+  expect(sealed.result.status).toBe(0);expect(sealed.output).toContain('sign=true');
+  expect(sealed.output).toContain('artifact_kind=proof');expect(sealed.proof).toMatchObject({ kind: 'exposure-evidence' });
+});
+it.each([false, true])('the real seal CLI withholds evidence while cleanup is pending, healthy=%s', async healthy => {
+  const sealed = await seal({ healthy, cleanupWarning: true });
+  expect(sealed.result.status).toBe(0);expect(sealed.output).toBe('sign=false\n');
+  expect(sealed.proof).toBeNull();expect(sealed.envelope).toBeNull();
 });
 it.each([{ stale: true }, { missingChecksum: true }])('the seal CLI rejects stale or incomplete state: %j', async options => {
   const sealed = await seal(options);

@@ -20,7 +20,7 @@ function deploymentView(value: unknown): Deployment {
 }
 
 export interface Hosting {
-  assertScope(): Promise<void>;
+  assertScope(expectedTarget?: Target): Promise<void>;
   snapshot(): Promise<Snapshot>;
   deployment(id: string): Promise<Deployment>;
   updateImage(image: string): Promise<void>;
@@ -40,8 +40,8 @@ export class Railway {
           method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
           headers: { 'Content-Type': 'application/json', 'Project-Access-Token': this.token }, body: JSON.stringify({ query, variables }),
         });
-      } catch {
-        throw new LabError('PROVIDER_TRANSPORT', 'Railway request did not complete. Reconcile before repeating any mutation.', mutation ? 'unknown_outcome' : 'blocked');
+      } catch (error) {
+        throw new LabError('PROVIDER_TRANSPORT', 'Railway request did not complete. Reconcile before repeating any mutation.', mutation ? 'unknown_outcome' : 'blocked', { cause: error });
       }
       if (!mutation && [429, 502, 503, 504].includes(response.status) && attempt < 2) {
         const seconds = Number(response.headers.get('retry-after') ?? '1');
@@ -56,7 +56,8 @@ export class Railway {
       return envelope.data;
     }
   }
-  async assertScope() {
+  async assertScope(expectedTarget: Target = this.target) {
+    if (fingerprint(expectedTarget) !== fingerprint(this.target)) throw new LabError('PROVIDER_TARGET_MISMATCH', 'Use the hosting adapter for the retained project, service, environment and URL.');
     const result = z.object({ projectToken: z.object({ projectId: z.string(), environmentId: z.string() }) }).parse(await this.call('query { projectToken { projectId environmentId } }'));
     if (result.projectToken.projectId !== this.target.projectId || result.projectToken.environmentId !== this.target.environmentId) throw new LabError('TOKEN_SCOPE_MISMATCH', 'TOKEN_SCOPE_MISMATCH: Use the project token for this exact target environment.');
   }
